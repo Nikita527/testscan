@@ -23,6 +23,9 @@ func TestRules_HitClean(t *testing.T) {
 		{"assert-true", rules.NewAssertTrue(), "testdata/assert_true", "test_assert_true.py", "assert-true", 2},
 		{"mock-only-assert", rules.NewMockOnlyAssert(), "testdata/mock_only_assert", "test_mock_only.py", "mock-only-assert", 2},
 		{"todo-test", rules.NewTodoTest(), "testdata/todo", "test_todo.py", "todo-test", 2},
+		{"duplicate-test-name", rules.NewDuplicateTestName(), "testdata/duplicate_test_name", "test_dup.py", "duplicate-test-name", 5},
+		{"only-happy-path", rules.NewOnlyHappyPath(), "testdata/only_happy_path", "test_happy.py", "only-happy-path", 1},
+		{"assert-equals-same", rules.NewAssertEqualsSame(), "testdata/assert_equals_same", "test_same.py", "assert-equals-same", 2},
 	}
 
 	for _, tc := range cases {
@@ -51,8 +54,8 @@ func TestRules_HitClean(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	got := rules.Default()
-	if len(got) != 5 {
-		t.Fatalf("got %d rules, want 5", len(got))
+	if len(got) != 8 {
+		t.Fatalf("got %d rules, want 8", len(got))
 	}
 }
 

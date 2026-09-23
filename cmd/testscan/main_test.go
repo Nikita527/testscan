@@ -35,14 +35,86 @@ func TestExitCode(t *testing.T) {
 }
 
 func TestParseArgs(t *testing.T) {
-	roots, format, failOn, err := parseArgs([]string{"testdata", "--format", "json", "--fail-on", "never"})
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name        string
+		argv        []string
+		wantRoots   []string
+		wantFormat  string
+		wantFailOn  string
+		wantOnly    []string
+		wantDisable []string
+		wantErr     bool
+	}{
+		{
+			name:       "m1_flags",
+			argv:       []string{"testdata", "--format", "json", "--fail-on", "never"},
+			wantRoots:  []string{"testdata"},
+			wantFormat: "json",
+			wantFailOn: "never",
+		},
+		{
+			name:       "rule_only",
+			argv:       []string{"path", "--rule", "assert-equals-same"},
+			wantRoots:  []string{"path"},
+			wantFormat: "text",
+			wantFailOn: "error",
+			wantOnly:   []string{"assert-equals-same"},
+		},
+		{
+			name:        "disable_repeat",
+			argv:        []string{"--disable", "no-assert", "--disable", "empty-test", "."},
+			wantRoots:   []string{"."},
+			wantFormat:  "text",
+			wantFailOn:  "error",
+			wantDisable: []string{"no-assert", "empty-test"},
+		},
+		{
+			// конфликт ловит rules.Select, не parseArgs
+			name:        "conflict_passed_to_select",
+			argv:        []string{"--rule", "todo-test", "--disable", "todo-test"},
+			wantFormat:  "text",
+			wantFailOn:  "error",
+			wantOnly:    []string{"todo-test"},
+			wantDisable: []string{"todo-test"},
+		},
 	}
-	if len(roots) != 1 || roots[0] != "testdata" {
-		t.Fatalf("roots=%v", roots)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseArgs(tc.argv)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strSliceEq(got.roots, tc.wantRoots) {
+				t.Fatalf("roots=%v, want %v", got.roots, tc.wantRoots)
+			}
+			if got.format != tc.wantFormat || got.failOn != tc.wantFailOn {
+				t.Fatalf("format=%s failOn=%s", got.format, got.failOn)
+			}
+			if !strSliceEq(got.only, tc.wantOnly) {
+				t.Fatalf("only=%v, want %v", got.only, tc.wantOnly)
+			}
+			if !strSliceEq(got.disable, tc.wantDisable) {
+				t.Fatalf("disable=%v, want %v", got.disable, tc.wantDisable)
+			}
+		})
 	}
-	if format != "json" || failOn != "never" {
-		t.Fatalf("format=%s failOn=%s", format, failOn)
+}
+
+func strSliceEq(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
 	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -10,6 +10,8 @@ go build -o testscan.exe ./cmd/testscan
 ./testscan.exe .
 ./testscan.exe path/to/tests --format text --fail-on error
 ./testscan.exe path/to/tests --format json --fail-on never
+./testscan.exe path --rule assert-equals-same
+./testscan.exe path --disable no-assert --disable empty-test
 ```
 
 Пример на mp-be:
@@ -21,14 +23,31 @@ go build -o testscan.exe ./cmd/testscan
 Флаги:
 - `--format text|json` (default: `text`)
 - `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`
+- `--rule ID` (можно повторять) — только указанные правила; без флага — все из `Default()`
+- `--disable ID` (можно повторять) — выключить правило(а)
+- одно и то же ID в `--rule` и `--disable` → ошибка, exit `2`
 
 Как библиотека:
 
 ```go
+selected, err := rules.Select(rules.Default(), only, disable)
 findings, err := scan.Run(ctx, []string{"tests"}, scan.Options{
-    Rules: rules.Default(),
+    Rules: selected,
 })
 ```
+
+## Правила (Default = 8)
+
+| ID | Severity | Когда |
+|----|----------|--------|
+| empty-test | error | пустой файл / только pass или docstring |
+| no-assert | error | нет assert / pytest.raises / pytest.warns |
+| assert-true | warning | есть `assert True` |
+| mock-only-assert | warning | есть mock-assert, нет обычного `assert ` |
+| todo-test | warning | pytest.skip / fail("TODO") / assert False, "TODO" |
+| duplicate-test-name | error | две+ `def test_…` с одним именем в файле |
+| only-happy-path | warning | >3 тест-функций и нет raises/warns/assertRaises |
+| assert-equals-same | warning | `assert <expr> == <expr>` с одинаковым текстом слева и справа |
 
 ## Парсинг
 
@@ -41,6 +60,9 @@ findings, err := scan.Run(ctx, []string{"tests"}, scan.Options{
 3. `mock-only-assert` — грубое разделение: `assert_called*` vs `assert ` (с пробелом).
 4. `todo-test` — `pytest.skip` / `unittest.skip` без разбора причины; `assert False` только с `, "TODO"` / `pytest.fail("TODO")`.
 5. `empty-test` — file-level: пустой файл, либо только `pass` / одиночный docstring под `def` (без полного AST тела теста).
+6. `assert-equals-same` — `assert 1 == 1`; `assert "x==y" == z` (первый `==` внутри строки); сравнения в комментариях.
+7. `only-happy-path` — не видит негативные кейсы через свои хелперы/фикстуры без `raises`/`warns`/`assertRaises`.
+8. `duplicate-test-name` — одинаковые имена в разных классах одного файла считаются дубликатами.
 
 ## Тесты
 

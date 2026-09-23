@@ -9,5 +9,8 @@ func Default() []scan.Rule {
 		NewAssertTrue(),
 		NewMockOnlyAssert(),
 		NewTodoTest(),
+		NewDuplicateTestName(),
+		NewOnlyHappyPath(),
+		NewAssertEqualsSame(),
 	}
 }
