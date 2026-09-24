@@ -2,7 +2,7 @@
 
 Линтер запахов Python-тестов на Go. Обходит дерево, ищет `test_*.py` / `*_test.py`, применяет набор правил.
 
-## Запуск
+## Запуск (Go)
 
 ```bash
 go build -o testscan.exe ./cmd/testscan
@@ -17,6 +17,18 @@ go build -o testscan.exe ./cmd/testscan
 ./testscan.exe path --format json --fail-on never > baseline.json
 ./testscan.exe path --baseline baseline.json
 ```
+
+## Запуск через uvx (без `go install`)
+
+Тонкий Python-launcher: см. [python/README.md](python/README.md).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File python/scripts/embed_bin.ps1
+uvx --from ./python testscan --help
+uvx --from ./python testscan path --fail-on never
+```
+
+Go остаётся источником правды; Python только находит бинарник и пробрасывает argv/exit code.
 
 Пример на mp-be:
 

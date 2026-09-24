@@ -1,0 +1,4 @@
+# Go binary is not committed (see repo .gitignore *.exe).
+# Build into this directory:
+#   powershell python/scripts/embed_bin.ps1
+#   # or: bash python/scripts/embed_bin.sh

@@ -1,0 +1,19 @@
+[project]
+name = "testscan"
+version = "0.1.0"
+description = "Thin launcher for the Go testscan CLI (no lint logic in Python)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+
+[project.scripts]
+testscan = "testscan_py.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/testscan_py"]
+# иначе hatchling уважает .gitignore и выкидывает *.exe из wheel
+ignore-vcs = true
