@@ -122,5 +122,5 @@ func sarifURI(path, cwd string) string {
 			path = rel
 		}
 	}
-	return filepath.ToSlash(path)
+	return strings.ReplaceAll(filepath.ToSlash(path), "\\", "/")
 }

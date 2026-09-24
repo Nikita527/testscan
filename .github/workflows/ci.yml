@@ -47,6 +47,8 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          # Pin: `latest` breaks CI when golangci-lint major/defaults shift.
-          version: v2.1.6
+          # goinstall builds the linter with setup-go's toolchain (go.mod),
+          # avoiding "linter Go < targeted Go" skew from prebuilt binaries.
+          install-mode: goinstall
+          version: latest
           args: --timeout=5m
