@@ -12,5 +12,9 @@ func Default() []scan.Rule {
 		NewDuplicateTestName(),
 		NewOnlyHappyPath(),
 		NewAssertEqualsSame(),
+		NewSnapshotOnly(),
+		NewOvermockedIO(),
+		NewPrivateImport(),
+		NewNoBehaviorChange(),
 	}
 }

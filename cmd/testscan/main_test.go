@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/Nikita527/testscan/internal/config"
 	"github.com/Nikita527/testscan/scan"
 )
 
@@ -44,14 +45,37 @@ func TestParseArgs(t *testing.T) {
 		wantOnly     []string
 		wantDisable  []string
 		wantBaseline string
+		wantWorkers  int
+		wantWorkersS bool
+		wantFailOnS  bool
 		wantErr      bool
 	}{
 		{
-			name:       "m1_flags",
-			argv:       []string{"testdata", "--format", "json", "--fail-on", "never"},
-			wantRoots:  []string{"testdata"},
-			wantFormat: "json",
-			wantFailOn: "never",
+			name:        "m1_flags",
+			argv:        []string{"testdata", "--format", "json", "--fail-on", "never"},
+			wantRoots:   []string{"testdata"},
+			wantFormat:  "json",
+			wantFailOn:  "never",
+			wantFailOnS: true,
+		},
+		{
+			name:       "format_sarif",
+			argv:       []string{"path", "--format", "sarif"},
+			wantRoots:  []string{"path"},
+			wantFormat: "sarif",
+			wantFailOn: "error",
+		},
+		{
+			name:       "format_html",
+			argv:       []string{"path", "--format", "html"},
+			wantRoots:  []string{"path"},
+			wantFormat: "html",
+			wantFailOn: "error",
+		},
+		{
+			name:    "format_invalid",
+			argv:    []string{"--format", "xml"},
+			wantErr: true,
 		},
 		{
 			name:       "rule_only",
@@ -76,6 +100,15 @@ func TestParseArgs(t *testing.T) {
 			wantFormat:   "text",
 			wantFailOn:   "error",
 			wantBaseline: "base.json",
+		},
+		{
+			name:         "workers",
+			argv:         []string{"path", "--workers", "4"},
+			wantRoots:    []string{"path"},
+			wantFormat:   "text",
+			wantFailOn:   "error",
+			wantWorkers:  4,
+			wantWorkersS: true,
 		},
 		{
 			// конфликт ловит rules.Select, не parseArgs
@@ -115,8 +148,67 @@ func TestParseArgs(t *testing.T) {
 			if got.baseline != tc.wantBaseline {
 				t.Fatalf("baseline=%q, want %q", got.baseline, tc.wantBaseline)
 			}
+			if got.workers != tc.wantWorkers || got.workersSet != tc.wantWorkersS {
+				t.Fatalf("workers=%d set=%v, want %d set=%v", got.workers, got.workersSet, tc.wantWorkers, tc.wantWorkersS)
+			}
+			if got.failOnSet != tc.wantFailOnS {
+				t.Fatalf("failOnSet=%v, want %v", got.failOnSet, tc.wantFailOnS)
+			}
 		})
 	}
+}
+
+func TestApplyConfig(t *testing.T) {
+	t.Run("cli_overrides_fail_on_and_workers", func(t *testing.T) {
+		args := cliArgs{failOn: "never", failOnSet: true, workers: 8, workersSet: true, roots: []string{"cli"}}
+		cfg := config.Config{FailOn: "warning", Workers: 2, Paths: []string{"cfg"}, Disable: []string{"todo-test"}}
+		got := applyConfig(args, cfg)
+		if got.failOn != "never" || got.workers != 8 {
+			t.Fatalf("got failOn=%s workers=%d", got.failOn, got.workers)
+		}
+		if !strSliceEq(got.roots, []string{"cli"}) {
+			t.Fatalf("roots=%v", got.roots)
+		}
+		if !strSliceEq(got.disable, []string{"todo-test"}) {
+			t.Fatalf("disable=%v", got.disable)
+		}
+	})
+
+	t.Run("config_fills_defaults", func(t *testing.T) {
+		args := cliArgs{failOn: "error", format: "text"}
+		cfg := config.Config{
+			FailOn:  "warning",
+			Workers: 3,
+			Paths:   []string{"tests"},
+			Disable: []string{"no-assert"},
+		}
+		got := applyConfig(args, cfg)
+		if got.failOn != "warning" || got.workers != 3 {
+			t.Fatalf("got failOn=%s workers=%d", got.failOn, got.workers)
+		}
+		if !strSliceEq(got.roots, []string{"tests"}) {
+			t.Fatalf("roots=%v", got.roots)
+		}
+		if !strSliceEq(got.disable, []string{"no-assert"}) {
+			t.Fatalf("disable=%v", got.disable)
+		}
+	})
+
+	t.Run("disable_union", func(t *testing.T) {
+		args := cliArgs{failOn: "error", disable: []string{"empty-test"}, roots: []string{"."}}
+		cfg := config.Config{Disable: []string{"no-assert"}}
+		got := applyConfig(args, cfg)
+		if !strSliceEq(got.disable, []string{"no-assert", "empty-test"}) {
+			t.Fatalf("disable=%v", got.disable)
+		}
+	})
+
+	t.Run("no_config_roots_default_dot", func(t *testing.T) {
+		got := applyConfig(cliArgs{failOn: "error"}, config.Config{})
+		if !strSliceEq(got.roots, []string{"."}) {
+			t.Fatalf("roots=%v", got.roots)
+		}
+	})
 }
 
 func strSliceEq(a, b []string) bool {

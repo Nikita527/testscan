@@ -26,6 +26,10 @@ func TestRules_HitClean(t *testing.T) {
 		{"duplicate-test-name", rules.NewDuplicateTestName(), "testdata/duplicate_test_name", "test_dup.py", "duplicate-test-name", 5},
 		{"only-happy-path", rules.NewOnlyHappyPath(), "testdata/only_happy_path", "test_happy.py", "only-happy-path", 1},
 		{"assert-equals-same", rules.NewAssertEqualsSame(), "testdata/assert_equals_same", "test_same.py", "assert-equals-same", 2},
+		{"snapshot-only", rules.NewSnapshotOnly(), "testdata/snapshot_only", "test_snap.py", "snapshot-only", 1},
+		{"overmocked-io", rules.NewOvermockedIO(), "testdata/overmocked_io", "test_io.py", "overmocked-io", 3},
+		{"test-imports-implementation-private", rules.NewPrivateImport(), "testdata/test_imports_implementation_private", "test_priv.py", "test-imports-implementation-private", 1},
+		{"no-behavior-change", rules.NewNoBehaviorChange(), "testdata/no_behavior_change", "test_type.py", "no-behavior-change", 3},
 	}
 
 	for _, tc := range cases {
@@ -54,8 +58,8 @@ func TestRules_HitClean(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	got := rules.Default()
-	if len(got) != 8 {
-		t.Fatalf("got %d rules, want 8", len(got))
+	if len(got) != 12 {
+		t.Fatalf("got %d rules, want 12", len(got))
 	}
 }
 
@@ -99,5 +103,32 @@ func TestTodoTest_NoBareAssertFalse(t *testing.T) {
 	})
 	if len(withTODO) != 1 {
 		t.Fatalf("assert False, TODO must hit, got %d", len(withTODO))
+	}
+}
+
+func TestPrivateImport_Heuristics(t *testing.T) {
+	rule := rules.NewPrivateImport()
+	cases := []struct {
+		name string
+		src  string
+		hit  bool
+	}{
+		{"from_private_symbol", "from mymodule import _helper\n", true},
+		{"import_private_submodule", "import mymodule._internal\n", true},
+		{"import_stdlib_private_toplevel", "import _thread\n", false},
+		{"import_ast_stdlib", "import _ast\n", false},
+		{"from_public", "from mymodule import helper\n", false},
+		{"dunder", "from mymodule import __version__\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rule.Check(scan.File{Path: "t.py", Content: []byte(tc.src)})
+			if tc.hit && len(got) != 1 {
+				t.Fatalf("want hit, got %d findings (%v)", len(got), got)
+			}
+			if !tc.hit && len(got) != 0 {
+				t.Fatalf("want clean, got %v", got)
+			}
+		})
 	}
 }

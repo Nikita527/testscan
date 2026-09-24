@@ -1,26 +1,59 @@
 # testscan
 
-Линтер запахов Python-тестов на Go. Обходит дерево, ищет `test_*.py` / `*_test.py`, применяет набор правил.
+English | [Русский](README.ru.md)
 
-## Запуск (Go)
+**Static analysis for AI-generated Python tests — catch empty asserts, mock-only checks, and happy-path-only suites before they land in CI.**
+
+A Go linter that walks a tree, finds `test_*.py` / `*_test.py`, and applies a focused set of rules. Findings go to stdout; exit code / baseline fit CI gates.
+
+**Not a general code quality tool.** It does not replace [ruff](https://docs.astral.sh/ruff/), [pyscn](https://github.com/ludo-technologies/pyscn), or pytest-xdist. Scope is test smells typical of AI-written suites — not complexity, clones, or architecture layers.
+
+| | pyscn | **testscan** |
+|--|--|--|
+| Scope | Whole Python codebase | Only `test_*.py` / `*_test.py` |
+| Pain | “AI wrote bad/complex code” | “AI wrote empty / mock-only / happy-path tests” |
+| Output | HTML score + gate | Findings + exit code / baseline / SARIF |
+
+CLI messages are in English (standard for CLIs). See [README.ru.md](README.ru.md) for Russian docs.
+
+## Quick Start
+
+### From PyPI (recommended)
+
+No Go toolchain required — platform wheels ship the Go binary:
 
 ```bash
-go build -o testscan.exe ./cmd/testscan
-
-./testscan.exe .
-./testscan.exe path/to/tests --format text --fail-on error
-./testscan.exe path/to/tests --format json --fail-on never
-./testscan.exe path --rule assert-equals-same
-./testscan.exe path --disable no-assert --disable empty-test
-
-# снять baseline и использовать
-./testscan.exe path --format json --fail-on never > baseline.json
-./testscan.exe path --baseline baseline.json
+uvx testscan@latest tests/
+# or: pipx run testscan tests/
 ```
 
-## Запуск через uvx (без `go install`)
+```bash
+testscan path/to/tests --format text --fail-on error
+testscan path/to/tests --format json --fail-on never
+testscan path/to/tests --format sarif --fail-on never > testscan.sarif
+testscan path/to/tests --format html --fail-on never > testscan.html   # open in browser
+# Windows: --format html writes testscan.html in cwd and opens it (no need for > / start)
+testscan path --rule assert-equals-same
+testscan path --disable no-assert --disable empty-test
+testscan path --workers 4
 
-Тонкий Python-launcher: см. [python/README.md](python/README.md).
+# snapshot a baseline, then suppress known findings
+testscan path --format json --fail-on never > baseline.json
+testscan path --baseline baseline.json
+```
+
+### With Go
+
+```bash
+go install github.com/Nikita527/testscan/cmd/testscan@latest
+# or: go build -o testscan ./cmd/testscan
+
+testscan .
+```
+
+### Local embed (contributors)
+
+Thin Python launcher — see [python/README.md](python/README.md). Embed a local binary, then run from the package path:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File python/scripts/embed_bin.ps1
@@ -28,54 +61,85 @@ uvx --from ./python testscan --help
 uvx --from ./python testscan path --fail-on never
 ```
 
-Go остаётся источником правды; Python только находит бинарник и пробрасывает argv/exit code.
+Go remains the source of truth; Python only locates the binary and forwards argv / exit code.
 
-Пример на mp-be:
+### Flags
 
-```bash
-./testscan.exe /c/Dev/mp-be/tests --fail-on never --format json
+- `--format text|json|sarif|html` (default: `text`) — `html` is a self-contained interactive report (filter by severity / search; grouped by rule → file), not a pyscn-style score. On Windows, `html` writes `testscan.html` and opens it in the default browser; on other OS write to stdout (`> testscan.html`).
+- `--fail-on error|warning|never` (default: `error`) — exit `1` if any finding ≥ threshold; CLI errors → exit `2`
+- `--rule ID` (repeatable) — only these rules; omit to use `Default()`
+- `--disable ID` (repeatable) — turn rule(s) off; merged with config `disable`
+- same ID in both `--rule` and `--disable` → error, exit `2`
+- `--baseline path.json` — suppress findings matching baseline by `file+line+rule` (missing / invalid JSON → exit `2`)
+- `--workers N` — parallel file checks (`0` → `runtime.NumCPU()`)
+
+### pre-commit
+
+See [docs/pre-commit.md](docs/pre-commit.md) (mp-be example included). Short form with `uvx`:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: testscan
+        name: testscan
+        entry: uvx testscan@latest
+        language: system
+        types: [python]
+        files: '(^|/)(test_[^/]*|[^/]*_test)\.py$'
+        pass_filenames: true
 ```
 
-Замер у себя (не в CI):
+### Configuration
 
-```bash
-time ./testscan.exe /c/Dev/mp-be/tests --fail-on never >/dev/null
+Walks parents from the current working directory. Prefers `.testscan.toml`; otherwise `[tool.testscan]` in `pyproject.toml`.
+
+```toml
+# .testscan.toml
+fail-on = "warning"          # or fail_on
+disable = ["only-happy-path"]
+paths = ["tests"]
+workers = 4
 ```
 
-Флаги:
-- `--format text|json` (default: `text`)
-- `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`
-- `--rule ID` (можно повторять) — только указанные правила; без флага — все из `Default()`
-- `--disable ID` (можно повторять) — выключить правило(а)
-- одно и то же ID в `--rule` и `--disable` → ошибка, exit `2`
-- `--baseline path.json` — подавить findings, совпадающие с baseline по `file+line+rule` (нет файла / битый JSON → exit `2`)
+```toml
+# pyproject.toml
+[tool.testscan]
+fail-on = "error"
+disable = ["todo-test"]
+paths = ["tests", "src"]
+workers = 8
+```
 
-Как библиотека:
+CLI flags override config when set. If no path args are given, `paths` from config is used (else `.`). Config `paths` are resolved relative to the config file’s directory (not the process cwd). Config `disable` is unioned with `--disable`.
+
+### As a library
 
 ```go
 selected, err := rules.Select(rules.Default(), only, disable)
 findings, err := scan.Run(ctx, []string{"tests"}, scan.Options{
     Rules:   selected,
-    Workers: 0, // 0 → runtime.NumCPU(); параллель по файлам
+    Workers: 0, // 0 → runtime.NumCPU(); parallel per file
 })
 baseline, err := scan.LoadBaseline("baseline.json")
 findings = scan.FilterBaseline(findings, baseline)
 ```
 
-`scan.Options.Workers` — размер пула для `Check` по файлам (Walk последовательный).
+`scan.Options.Workers` is the pool size for `Check` per file (Walk stays sequential).
 
-## AST-helper (`internal/parse`)
+## AST helper (`internal/parse`)
 
-`empty-test` и `duplicate-test-name` по возможности используют AST через внешний Python-скрипт.
+`empty-test` and `duplicate-test-name` prefer AST via an external Python script when available.
 
-Запуск helper вручную:
+Run the helper manually:
 
 ```bash
 uv run --no-project python internal/parse/ast_dump.py path/to/test_foo.py
-# или: python internal/parse/ast_dump.py path/to/test_foo.py
+# or: python internal/parse/ast_dump.py path/to/test_foo.py
 ```
 
-Схема stdout (один JSON на файл):
+Stdout schema (one JSON object per file):
 
 ```json
 {
@@ -92,40 +156,54 @@ uv run --no-project python internal/parse/ast_dump.py path/to/test_foo.py
 }
 ```
 
-Go вызывает `parse.File(ctx, path, content)` один раз на файл внутри `scan.Run` (кэш в `scan.File.Model*`), затем AST-правила читают кэш — без двойного spawn Python.
+Go calls `parse.File(ctx, path, content)` once per file inside `scan.Run` (cached on `scan.File.Model*`); AST rules read the cache — no double Python spawn.
 
-Зависимость: установленный `uv` или `python3`/`python`. Остальные 6 правил остаются текстовыми.
+Requires installed `uv` or `python3`/`python`. The other rules stay text-based.
 
-## Правила (Default = 8)
+## Rules (Default = 12)
 
-| ID | Severity | Когда |
-|----|----------|--------|
-| empty-test | error | AST: пустое тело `test_*`/`Test*` (pass / только docstring); fallback — эвристика по функциям/файлу |
-| no-assert | error | нет assert / pytest.raises / pytest.warns |
-| assert-true | warning | есть `assert True` |
-| mock-only-assert | warning | есть mock-assert, нет обычного `assert ` |
+Hit/clean examples for every rule: [docs/rules.md](docs/rules.md).
+
+| ID | Severity | When |
+|----|----------|------|
+| empty-test | error | AST: empty `test_*` / `Test*` body (`pass` / docstring only); fallback — function/file heuristics |
+| no-assert | error | no assert / pytest.raises / pytest.warns |
+| assert-true | warning | has `assert True` |
+| mock-only-assert | warning | has mock-assert, no plain `assert ` |
 | todo-test | warning | pytest.skip / fail("TODO") / assert False, "TODO" |
-| duplicate-test-name | error | AST: дубликаты имён test-функций (lineno второго); fallback — построчный разбор |
-| only-happy-path | warning | >3 тест-функций и нет raises/warns/assertRaises |
-| assert-equals-same | warning | `assert <expr> == <expr>` с одинаковым текстом слева и справа |
+| duplicate-test-name | error | AST: duplicate test function names (lineno of second); fallback — line scan |
+| only-happy-path | warning | >3 test functions and no raises/warns/assertRaises |
+| assert-equals-same | warning | `assert <expr> == <expr>` with identical left and right text |
+| snapshot-only | warning | snapshot tooling without a non-snapshot `assert ` |
+| overmocked-io | warning | IO patched (`open` / pathlib / requests / httpx / urllib) and only mock asserts |
+| test-imports-implementation-private | warning | imports private `_name` (not dunder) from implementation |
+| no-behavior-change | warning | every assert is only `isinstance` / `type(...)` |
 
-## Парсинг
+## Parsing
 
-Два режима: AST-helper для `empty-test` / `duplicate-test-name`; остальное — эвристики по тексту (`strings.Contains` / построчный поиск).
+Two modes: AST helper for `empty-test` / `duplicate-test-name`; everything else — text heuristics (`strings.Contains` / line scan).
 
-## False positives (кратко)
+## False positives (short)
 
-1. `no-assert` — слово `assert` в имени функции/комментарии считается проверкой.
-2. `assert-true` — сработает на `assert True` в docstring или строке.
-3. `mock-only-assert` — грубое разделение: `assert_called*` vs `assert ` (с пробелом).
-4. `todo-test` — `pytest.skip` / `unittest.skip` без разбора причины; `assert False` только с `, "TODO"` / `pytest.fail("TODO")`.
-5. `empty-test` — без AST: грубый разбор тела по отступам; с AST точнее, но helpers/`pytest.skip` в теле не делают тест «непустым» сами по себе.
-6. `assert-equals-same` — `assert 1 == 1`; `assert "x==y" == z` (первый `==` внутри строки); сравнения в комментариях.
-7. `only-happy-path` — не видит негативные кейсы через свои хелперы/фикстуры без `raises`/`warns`/`assertRaises`.
-8. `duplicate-test-name` — одинаковые имена в разных классах одного файла считаются дубликатами.
+1. `no-assert` — the word `assert` in a function name or comment counts as a check.
+2. `assert-true` — fires on `assert True` in a docstring or string.
+3. `mock-only-assert` — coarse split: `assert_called*` vs `assert ` (with a space).
+4. `todo-test` — `pytest.skip` / `unittest.skip` without reason parsing; `assert False` only with `, "TODO"` / `pytest.fail("TODO")`.
+5. `empty-test` — without AST: rough indent-based body parse; with AST more accurate, but helpers / `pytest.skip` alone do not make a test “non-empty”.
+6. `assert-equals-same` — `assert 1 == 1`; `assert "x==y" == z` (first `==` inside a string); comparisons in comments.
+7. `only-happy-path` — misses negative cases via custom helpers/fixtures without `raises` / `warns` / `assertRaises`.
+8. `duplicate-test-name` — same names in different classes of one file count as duplicates.
+9. `snapshot-only` — any non-snapshot `assert ` line clears the rule; snapshot APIs outside the needle list are missed.
+10. `overmocked-io` — line must mention `patch` plus an IO target; other mock styles may miss or over-fire.
+11. `test-imports-implementation-private` — intentional private imports (white-box tests) still warn; top-level stdlib `import _thread` / `_ast` is ignored, but `import pkg._internal` still hits.
+12. `no-behavior-change` — a single value assert anywhere in the file clears it; type-check helpers not named `isinstance`/`type` are missed.
 
-## Тесты
+## Tests
 
 ```bash
 go test ./...
 ```
+
+## License
+
+MIT

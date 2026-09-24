@@ -1,0 +1,11 @@
+# Official hook definitions for https://github.com/Nikita527/testscan
+# Requires `testscan` on PATH (uv tool install / pipx / pip install testscan).
+# Prefer the uvx local-hook example in docs/pre-commit.md when the binary is not installed.
+- id: testscan
+  name: testscan
+  description: Static analysis for AI-generated Python tests — empty asserts, mock-only checks, happy-path-only suites
+  entry: testscan
+  language: system
+  types: [python]
+  files: '(^|/)(test_[^/]*|[^/]*_test)\.py$'
+  pass_filenames: true

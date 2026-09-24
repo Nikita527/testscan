@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-wheels:
+    name: Build wheel (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-amd64
+            goos: linux
+            goarch: amd64
+            wheel_platform: manylinux_2_17_x86_64
+          - os: windows-latest
+            platform: windows-amd64
+            goos: windows
+            goarch: amd64
+            wheel_platform: win_amd64
+          - os: macos-14
+            platform: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            wheel_platform: macosx_11_0_arm64
+          # Cross-compile from arm runner; CGO disabled in build step.
+          - os: macos-14
+            platform: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            wheel_platform: macosx_11_0_x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build hatchling hatch-vcs wheel twine
+        shell: bash
+
+      - name: Build platform wheel
+        run: bash python/scripts/build_platform_wheel.sh "${{ matrix.platform }}" "${{ matrix.wheel_platform }}"
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+
+      - name: Verify wheels
+        run: |
+          python -m twine check dist/*.whl
+          ls -la dist/
+        shell: bash
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform }}
+          path: dist/*.whl
+          retention-days: 14
+
+  test-wheels:
+    name: Test wheel (${{ matrix.os }})
+    needs: build-wheels
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: wheels/
+          merge-multiple: true
+
+      - name: Install and smoke-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Available wheels:"
+          ls -la wheels/
+          python -m pip install --upgrade pip
+          python -m pip install --no-index --find-links wheels/ testscan
+          testscan --help
+          testscan rules/testdata/empty/clean --fail-on error
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [build-wheels, test-wheels]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/testscan
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist/
+          merge-multiple: true
+
+      - name: List packages
+        run: ls -la dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          verbose: true
+
+  github-release:
+    name: GitHub Release
+    needs: [build-wheels, test-wheels]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: wheels/
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: wheels/*.whl
+          generate_release_notes: true

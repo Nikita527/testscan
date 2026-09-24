@@ -34,3 +34,15 @@ go.work.sum
 # Embedded Go binary for Python launcher (rebuild via python/scripts/embed_bin.*)
 python/src/testscan_py/bin/testscan
 python/src/testscan_py/bin/testscan.exe
+
+# hatch-vcs / local wheel builds
+python/src/testscan_py/_version.py
+dist/
+python/dist/
+python/**/*.egg-info/
+__pycache__/
+*.whl
+.uv.lock
+
+# HTML report
+testscan.html

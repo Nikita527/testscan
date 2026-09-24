@@ -30,8 +30,9 @@ def resolve_bin() -> Path:
             return p
 
     raise FileNotFoundError(
-        "testscan binary not found. Set TESTSCAN_BIN, run "
-        "python/scripts/embed_bin.ps1 (or .sh), or put the Go binary on PATH."
+        "testscan binary not found. Install from PyPI (uvx testscan@latest), "
+        "set TESTSCAN_BIN, run python/scripts/embed_bin.ps1 (or .sh), "
+        "or put the Go binary on PATH."
     )
 
 
