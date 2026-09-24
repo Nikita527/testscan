@@ -12,6 +12,10 @@ go build -o testscan.exe ./cmd/testscan
 ./testscan.exe path/to/tests --format json --fail-on never
 ./testscan.exe path --rule assert-equals-same
 ./testscan.exe path --disable no-assert --disable empty-test
+
+# снять baseline и использовать
+./testscan.exe path --format json --fail-on never > baseline.json
+./testscan.exe path --baseline baseline.json
 ```
 
 Пример на mp-be:
@@ -20,21 +24,33 @@ go build -o testscan.exe ./cmd/testscan
 ./testscan.exe /c/Dev/mp-be/tests --fail-on never --format json
 ```
 
+Замер у себя (не в CI):
+
+```bash
+time ./testscan.exe /c/Dev/mp-be/tests --fail-on never >/dev/null
+```
+
 Флаги:
 - `--format text|json` (default: `text`)
 - `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`
 - `--rule ID` (можно повторять) — только указанные правила; без флага — все из `Default()`
 - `--disable ID` (можно повторять) — выключить правило(а)
 - одно и то же ID в `--rule` и `--disable` → ошибка, exit `2`
+- `--baseline path.json` — подавить findings, совпадающие с baseline по `file+line+rule` (нет файла / битый JSON → exit `2`)
 
 Как библиотека:
 
 ```go
 selected, err := rules.Select(rules.Default(), only, disable)
 findings, err := scan.Run(ctx, []string{"tests"}, scan.Options{
-    Rules: selected,
+    Rules:   selected,
+    Workers: 0, // 0 → runtime.NumCPU(); параллель по файлам
 })
+baseline, err := scan.LoadBaseline("baseline.json")
+findings = scan.FilterBaseline(findings, baseline)
 ```
+
+`scan.Options.Workers` — размер пула для `Check` по файлам (Walk последовательный).
 
 ## Правила (Default = 8)
 

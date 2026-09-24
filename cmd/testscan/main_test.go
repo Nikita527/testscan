@@ -36,14 +36,15 @@ func TestExitCode(t *testing.T) {
 
 func TestParseArgs(t *testing.T) {
 	cases := []struct {
-		name        string
-		argv        []string
-		wantRoots   []string
-		wantFormat  string
-		wantFailOn  string
-		wantOnly    []string
-		wantDisable []string
-		wantErr     bool
+		name         string
+		argv         []string
+		wantRoots    []string
+		wantFormat   string
+		wantFailOn   string
+		wantOnly     []string
+		wantDisable  []string
+		wantBaseline string
+		wantErr      bool
 	}{
 		{
 			name:       "m1_flags",
@@ -67,6 +68,14 @@ func TestParseArgs(t *testing.T) {
 			wantFormat:  "text",
 			wantFailOn:  "error",
 			wantDisable: []string{"no-assert", "empty-test"},
+		},
+		{
+			name:         "baseline",
+			argv:         []string{"path", "--baseline", "base.json"},
+			wantRoots:    []string{"path"},
+			wantFormat:   "text",
+			wantFailOn:   "error",
+			wantBaseline: "base.json",
 		},
 		{
 			// конфликт ловит rules.Select, не parseArgs
@@ -102,6 +111,9 @@ func TestParseArgs(t *testing.T) {
 			}
 			if !strSliceEq(got.disable, tc.wantDisable) {
 				t.Fatalf("disable=%v, want %v", got.disable, tc.wantDisable)
+			}
+			if got.baseline != tc.wantBaseline {
+				t.Fatalf("baseline=%q, want %q", got.baseline, tc.wantBaseline)
 			}
 		})
 	}

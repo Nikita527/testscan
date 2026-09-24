@@ -13,16 +13,17 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-const usage = "usage: testscan [path...] [--format text|json] [--fail-on error|warning|never] [--rule ID] [--disable ID]"
+const usage = "usage: testscan [path...] [--format text|json] [--fail-on error|warning|never] [--rule ID] [--disable ID] [--baseline path.json]"
 
 var errHelp = errors.New("help")
 
 type cliArgs struct {
-	roots   []string
-	format  string
-	failOn  string
-	only    []string
-	disable []string
+	roots    []string
+	format   string
+	failOn   string
+	only     []string
+	disable  []string
+	baseline string
 }
 
 func main() {
@@ -51,6 +52,15 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
 		os.Exit(2)
+	}
+
+	if args.baseline != "" {
+		baseline, err := scan.LoadBaseline(args.baseline)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
+			os.Exit(2)
+		}
+		findings = scan.FilterBaseline(findings, baseline)
 	}
 
 	if err := writeFindings(os.Stdout, findings, args.format); err != nil {
@@ -105,6 +115,14 @@ func parseArgs(argv []string) (cliArgs, error) {
 			out.disable = append(out.disable, argv[i])
 		case strings.HasPrefix(a, "--disable="):
 			out.disable = append(out.disable, strings.TrimPrefix(a, "--disable="))
+		case a == "--baseline":
+			i++
+			if i >= len(argv) {
+				return cliArgs{}, fmt.Errorf("missing value for --baseline")
+			}
+			out.baseline = argv[i]
+		case strings.HasPrefix(a, "--baseline="):
+			out.baseline = strings.TrimPrefix(a, "--baseline=")
 		case strings.HasPrefix(a, "-"):
 			return cliArgs{}, fmt.Errorf("unknown flag %s", a)
 		default:
