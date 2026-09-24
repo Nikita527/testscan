@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	"github.com/Nikita527/testscan/internal/parse"
 	"github.com/Nikita527/testscan/scan"
 )
 
@@ -13,8 +14,28 @@ func (emptyTest) ID() string {
 }
 
 func (emptyTest) Check(file scan.File) []scan.Finding {
+	model, err := astModel(file)
+	if err != nil {
+		return emptyTestHeuristic(file)
+	}
+	return emptyTestFromAST(file, model)
+}
+
+func emptyTestFromAST(file scan.File, model parse.Model) []scan.Finding {
 	var findings []scan.Finding
-	if isVacuousTestFile(string(file.Content)) {
+	for _, t := range model.Tests {
+		if !t.IsEmpty {
+			continue
+		}
+		findings = append(findings, scan.Finding{
+			File:     file.Path,
+			Line:     t.Lineno,
+			Rule:     "empty-test",
+			Severity: "error",
+			Message:  "empty test function: " + t.Name,
+		})
+	}
+	if len(model.Tests) == 0 && isVacuousTestFile(string(file.Content)) {
 		findings = append(findings, scan.Finding{
 			File:     file.Path,
 			Line:     1,
@@ -24,6 +45,74 @@ func (emptyTest) Check(file scan.File) []scan.Finding {
 		})
 	}
 	return findings
+}
+
+func emptyTestHeuristic(file scan.File) []scan.Finding {
+	lines := strings.Split(string(file.Content), "\n")
+	var findings []scan.Finding
+	for i, line := range lines {
+		name, ok := testDefName(line)
+		if !ok {
+			continue
+		}
+		if !bodyVacuous(lines, i) {
+			continue
+		}
+		findings = append(findings, scan.Finding{
+			File:     file.Path,
+			Line:     i + 1,
+			Rule:     "empty-test",
+			Severity: "error",
+			Message:  "empty test function: " + name,
+		})
+	}
+	if len(findings) == 0 && isVacuousTestFile(string(file.Content)) {
+		return []scan.Finding{{
+			File:     file.Path,
+			Line:     1,
+			Rule:     "empty-test",
+			Severity: "error",
+			Message:  "test file is empty (or only pass/docstring)",
+		}}
+	}
+	return findings
+}
+
+// bodyVacuous: тело до следующего def/class на том же/меньшем отступе — только pass/docstring.
+func bodyVacuous(lines []string, defIdx int) bool {
+	defIndent := leadingSpaces(lines[defIdx])
+	for j := defIdx + 1; j < len(lines); j++ {
+		raw := lines[j]
+		t := strings.TrimSpace(raw)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		ind := leadingSpaces(raw)
+		if ind <= defIndent && (strings.HasPrefix(t, "def ") || strings.HasPrefix(t, "async def ") || strings.HasPrefix(t, "class ")) {
+			break
+		}
+		if t == "pass" || isLoneStringLiteral(t) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func leadingSpaces(s string) int {
+	n := 0
+	for _, r := range s {
+		if r == ' ' {
+			n++
+			continue
+		}
+		if r == '\t' {
+			n += 4
+			continue
+		}
+		break
+	}
+	return n
 }
 
 // isVacuousTestFile: пустой файл, либо только def/class + pass и/или одиночный docstring.

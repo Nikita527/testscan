@@ -5,6 +5,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Nikita527/testscan/internal/parse"
 	"github.com/Nikita527/testscan/scan"
 )
 
@@ -15,8 +16,35 @@ func (duplicateTestName) ID() string {
 }
 
 func (duplicateTestName) Check(file scan.File) []scan.Finding {
+	model, err := astModel(file)
+	if err != nil {
+		return duplicateTestNameHeuristic(file)
+	}
+	return duplicateTestNameFromAST(file, model)
+}
+
+func duplicateTestNameFromAST(file scan.File, model parse.Model) []scan.Finding {
 	var findings []scan.Finding
-	seen := map[string]int{} // name → first line (1-based)
+	seen := map[string]int{}
+	for _, t := range model.Tests {
+		if _, dup := seen[t.Name]; dup {
+			findings = append(findings, scan.Finding{
+				File:     file.Path,
+				Line:     t.Lineno,
+				Rule:     "duplicate-test-name",
+				Severity: "error",
+				Message:  "duplicate test function name: " + t.Name,
+			})
+			continue
+		}
+		seen[t.Name] = t.Lineno
+	}
+	return findings
+}
+
+func duplicateTestNameHeuristic(file scan.File) []scan.Finding {
+	var findings []scan.Finding
+	seen := map[string]int{}
 	src := string(file.Content)
 
 	for i, line := range strings.Split(src, "\n") {

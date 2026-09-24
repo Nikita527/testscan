@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sort"
 
+	"github.com/Nikita527/testscan/internal/parse"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -21,9 +22,16 @@ type Finding struct {
 	Message  string `json:"message"`
 }
 
+// File — исходник теста. После Walk; в Run один раз заполняется AST (Model*),
+// чтобы несколько AST-правил не спавнили Python повторно.
 type File struct {
 	Path    string
 	Content []byte
+
+	// ModelOK — Run уже вызывал parse.File для этого файла.
+	ModelOK  bool
+	Model    parse.Model
+	ModelErr error
 }
 
 type Rule interface {
@@ -59,6 +67,7 @@ func Run(ctx context.Context, roots []string, opts Options) ([]Finding, error) {
 			if err := gctx.Err(); err != nil {
 				return err
 			}
+			file = withAST(gctx, file)
 			var fs []Finding
 			for _, rule := range opts.Rules {
 				fs = append(fs, rule.Check(file)...)
@@ -77,6 +86,14 @@ func Run(ctx context.Context, roots []string, opts Options) ([]Finding, error) {
 	}
 	SortFindings(findings)
 	return findings, nil
+}
+
+func withAST(ctx context.Context, file File) File {
+	model, err := parse.File(ctx, file.Path, file.Content)
+	file.Model = model
+	file.ModelErr = err
+	file.ModelOK = true
+	return file
 }
 
 // SortFindings сортирует по file, line, rule (детерминизм после параллельного Run).
