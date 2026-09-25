@@ -15,7 +15,7 @@ func TestOnlyHappyPath_CoverageMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cov := filepath.Join(root, "coverage.json")
+	cov := filepath.Join(root, "coverage_hit.json")
 
 	res, err := scan.Run(context.Background(), []string{filepath.Join(root, "tests")}, scan.Options{
 		Rules: []scan.Rule{rules.NewOnlyHappyPathOpts(rules.OnlyHappyPathOpts{
