@@ -162,10 +162,7 @@ func hasNegativePath(model parse.Model, src string, negName []string) bool {
 			}
 		}
 	}
-	if statusLooksNegative(src) {
-		return true
-	}
-	return false
+	return statusLooksNegative(src)
 }
 
 func assertLooksNegative(a parse.Assert) bool {

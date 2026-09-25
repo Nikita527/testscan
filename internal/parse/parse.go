@@ -295,8 +295,8 @@ func (s StaticParser) Parse(context.Context, string, []byte) (Model, error) {
 
 // batchReq / batchResp are JSONL framing for the long-lived helper.
 type batchReq struct {
-	Path            string   `json:"path"`
-	Source          string   `json:"source"`
+	Path   string `json:"path"`
+	Source string `json:"source"`
 	// Always sent (even empty) so the helper can reset to pytest defaults.
 	PythonFunctions []string `json:"python_functions"`
 	PythonClasses   []string `json:"python_classes"`

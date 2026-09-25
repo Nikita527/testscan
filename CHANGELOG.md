@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Major release candidate (accuracy roadmap + Health Score). CI that parsed `--format json` as a bare findings array must switch to the `findings` key (see **Changed**).
+## [0.2.0] - 2026-09-25
+
+Accuracy roadmap + Health Score. CI that parsed `--format json` as a bare findings array must switch to the `findings` key (see **Changed**).
 
 ### Changed
 
@@ -42,5 +44,6 @@ Major release candidate (accuracy roadmap + Health Score). CI that parsed `--for
 
 Initial tagged release: Go CLI + PyPI launcher, default AI-test smell rules, text/JSON/SARIF/HTML output, baseline, config, and pre-commit docs.
 
-[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Nikita527/testscan/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Nikita527/testscan/releases/tag/v0.1.0

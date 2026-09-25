@@ -13,7 +13,7 @@ type Config struct {
 	FailOn  string // error|warning|never; empty = unset
 	Disable []string
 	Paths   []string
-	Workers int // 0 = unset (NumCPU in scan)
+	Workers int    // 0 = unset (NumCPU in scan)
 	Source  string // config file path loaded from; empty if none
 
 	Exclude          []string
@@ -47,17 +47,17 @@ type Override struct {
 }
 
 type fileTOML struct {
-	FailOnKebab      string   `toml:"fail-on"`
-	FailOnSnake      string   `toml:"fail_on"`
-	Disable          []string `toml:"disable"`
-	Paths            []string `toml:"paths"`
-	Workers          int      `toml:"workers"`
-	Exclude          []string `toml:"exclude"`
-	AssertHelpers    []string `toml:"assert-helpers"`
-	PythonFiles      []string `toml:"python-files"`
-	PythonFunctions  []string `toml:"python-functions"`
-	PythonClasses    []string `toml:"python-classes"`
-	RespectGitignore *bool    `toml:"respect-gitignore"`
+	FailOnKebab      string              `toml:"fail-on"`
+	FailOnSnake      string              `toml:"fail_on"`
+	Disable          []string            `toml:"disable"`
+	Paths            []string            `toml:"paths"`
+	Workers          int                 `toml:"workers"`
+	Exclude          []string            `toml:"exclude"`
+	AssertHelpers    []string            `toml:"assert-helpers"`
+	PythonFiles      []string            `toml:"python-files"`
+	PythonFunctions  []string            `toml:"python-functions"`
+	PythonClasses    []string            `toml:"python-classes"`
+	RespectGitignore *bool               `toml:"respect-gitignore"`
 	Rules            map[string]ruleTOML `toml:"rules"`
 	Overrides        []overrideTOML      `toml:"overrides"`
 }
@@ -77,7 +77,7 @@ type overrideTOML struct {
 
 type pyprojectTOML struct {
 	Tool struct {
-		Testscan fileTOML            `toml:"testscan"`
+		Testscan fileTOML             `toml:"testscan"`
 		Pytest   pytestIniOptionsTOML `toml:"pytest"`
 	} `toml:"tool"`
 }

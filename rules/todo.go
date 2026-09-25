@@ -174,8 +174,8 @@ func todoTestHeuristic(file scan.File) []scan.Finding {
 		if !strings.HasPrefix(t, "@") {
 			continue
 		}
-		if !(strings.Contains(t, "mark.skip") || strings.Contains(t, "mark.xfail") ||
-			strings.Contains(t, "unittest.skip")) {
+		if !strings.Contains(t, "mark.skip") && !strings.Contains(t, "mark.xfail") &&
+			!strings.Contains(t, "unittest.skip") {
 			continue
 		}
 		if containsTODOLiteral(t) {

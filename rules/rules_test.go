@@ -176,10 +176,10 @@ func TestOnlyHappyPath_IsNotNoneDoesNotCountAsNegative(t *testing.T) {
 			QualName: name,
 			Lineno:   i*3 + 1,
 			Asserts: []parse.Assert{{
-				Kind:  "compare",
-				Text:  "result is not None",
-				Left:  "result",
-				Right: "None",
+				Kind:   "compare",
+				Text:   "result is not None",
+				Left:   "result",
+				Right:  "None",
 				Lineno: i*3 + 2,
 			}},
 		})
@@ -255,7 +255,6 @@ func TestMockTautology_UnrelatedTrueClean(t *testing.T) {
 		t.Fatalf("unrelated True assert must not hit mock-tautology, got %v", got)
 	}
 }
-
 
 func TestPrivateImport_Heuristics(t *testing.T) {
 	rule := rules.NewPrivateImport()

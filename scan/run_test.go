@@ -156,7 +156,8 @@ func TestRun_ParsesWhenRuleNeedsAST(t *testing.T) {
 func TestRun_OptionsParserOverridesGlobal(t *testing.T) {
 	global := &countingParser{}
 	opts := &countingParser{}
-	restore := parse.SetParser(global)
+	// Intentionally exercises deprecated SetParser to assert Options.Parser wins.
+	restore := parse.SetParser(global) //nolint:staticcheck // SA1019
 	defer restore()
 
 	_, err := scan.Run(context.Background(), []string{"testdata"}, scan.Options{
@@ -172,12 +173,6 @@ func TestRun_OptionsParserOverridesGlobal(t *testing.T) {
 	if got := global.calls.Load(); got != 0 {
 		t.Fatalf("global parser calls=%d, want 0 when Options.Parser set", got)
 	}
-}
-
-type errParser struct{ err error }
-
-func (e errParser) Parse(context.Context, string, []byte) (parse.Model, error) {
-	return parse.Model{}, e.err
 }
 
 func TestRun_ResetsDiscoveryPatterns(t *testing.T) {
