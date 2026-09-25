@@ -6,8 +6,8 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-// Select фильтрует правила: only пустой → все из all; затем вычитает disable.
-// Неизвестный ID или пересечение only∩disable → error.
+// Select filters rules: empty only → all from all; then subtracts disable.
+// Unknown ID or only∩disable overlap → error.
 func Select(all []scan.Rule, only, disable []string) ([]scan.Rule, error) {
 	byID := make(map[string]scan.Rule, len(all))
 	for _, r := range all {
@@ -47,7 +47,7 @@ func Select(all []scan.Rule, only, disable []string) ([]scan.Rule, error) {
 		return out, nil
 	}
 
-	// сохраняем порядок only
+	// preserve only order
 	seen := make(map[string]struct{}, len(only))
 	for _, id := range only {
 		if _, dup := seen[id]; dup {

@@ -15,10 +15,15 @@ func (duplicateTestName) ID() string {
 	return "duplicate-test-name"
 }
 
+func (duplicateTestName) NeedsAST() bool { return true }
+
 func (duplicateTestName) Check(file scan.File) []scan.Finding {
 	model, err := astModel(file)
 	if err != nil {
-		return duplicateTestNameHeuristic(file)
+		if useHeuristic(file, err) {
+			return duplicateTestNameHeuristic(file)
+		}
+		return nil
 	}
 	return duplicateTestNameFromAST(file, model)
 }
@@ -27,17 +32,22 @@ func duplicateTestNameFromAST(file scan.File, model parse.Model) []scan.Finding 
 	var findings []scan.Finding
 	seen := map[string]int{}
 	for _, t := range model.Tests {
-		if _, dup := seen[t.Name]; dup {
+		key := t.QualName
+		if key == "" {
+			key = t.Name
+		}
+		if _, dup := seen[key]; dup {
 			findings = append(findings, scan.Finding{
 				File:     file.Path,
 				Line:     t.Lineno,
 				Rule:     "duplicate-test-name",
 				Severity: "error",
-				Message:  "duplicate test function name: " + t.Name,
+				Message:  "duplicate test function name: " + key,
+				QualName: key,
 			})
 			continue
 		}
-		seen[t.Name] = t.Lineno
+		seen[key] = t.Lineno
 	}
 	return findings
 }
@@ -60,6 +70,7 @@ func duplicateTestNameHeuristic(file scan.File) []scan.Finding {
 				Rule:     "duplicate-test-name",
 				Severity: "error",
 				Message:  "duplicate test function name: " + name,
+				QualName: name,
 			})
 			continue
 		}

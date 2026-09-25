@@ -11,9 +11,9 @@ import (
 
 func TestFilterBaseline(t *testing.T) {
 	findings := []scan.Finding{
-		{File: "a.py", Line: 1, Rule: "empty-test", Message: "m1"},
-		{File: "a.py", Line: 2, Rule: "todo-test", Message: "m2"},
-		{File: "b.py", Line: 1, Rule: "empty-test", Message: "m3"},
+		{File: "a.py", Line: 1, Rule: "empty-test", Message: "m1", Fingerprint: "fp1"},
+		{File: "a.py", Line: 2, Rule: "todo-test", Message: "m2", Fingerprint: "fp2"},
+		{File: "b.py", Line: 1, Rule: "empty-test", Message: "m3", Fingerprint: "fp3"},
 	}
 
 	cases := []struct {
@@ -29,7 +29,15 @@ func TestFilterBaseline(t *testing.T) {
 			wantKeep: []string{"a.py:1:empty-test", "a.py:2:todo-test", "b.py:1:empty-test"},
 		},
 		{
-			name: "hit_suppressed_message_ignored",
+			name: "fingerprint_suppresses",
+			baseline: []scan.Finding{
+				{File: "a.py", Line: 99, Rule: "empty-test", Fingerprint: "fp1", Message: "other"},
+			},
+			want:     2,
+			wantKeep: []string{"a.py:2:todo-test", "b.py:1:empty-test"},
+		},
+		{
+			name: "legacy_suppresses_message_ignored",
 			baseline: []scan.Finding{
 				{File: "a.py", Line: 1, Rule: "empty-test", Message: "other"},
 			},
@@ -57,11 +65,11 @@ func TestFilterBaseline(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := scan.FilterBaseline(findings, tc.baseline)
-			if len(got) != tc.want {
-				t.Fatalf("got %d findings, want %d: %v", len(got), tc.want, got)
+			if len(got.Findings) != tc.want {
+				t.Fatalf("got %d findings, want %d: %v", len(got.Findings), tc.want, got.Findings)
 			}
 			keep := map[string]bool{}
-			for _, f := range got {
+			for _, f := range got.Findings {
 				keep[f.File+":"+strconv.Itoa(f.Line)+":"+f.Rule] = true
 			}
 			for _, k := range tc.wantKeep {
@@ -73,8 +81,19 @@ func TestFilterBaseline(t *testing.T) {
 	}
 }
 
+func TestFilterBaseline_LegacyWarning(t *testing.T) {
+	findings := []scan.Finding{{File: "a.py", Line: 1, Rule: "empty-test", Fingerprint: "fp1"}}
+	baseline := []scan.Finding{{File: "a.py", Line: 1, Rule: "empty-test"}} // no fingerprint
+	got := scan.FilterBaseline(findings, baseline)
+	if len(got.Findings) != 0 {
+		t.Fatalf("want suppressed, got %v", got.Findings)
+	}
+	if !got.UsedLegacyMatch {
+		t.Fatal("want UsedLegacyMatch")
+	}
+}
+
 func TestFilterBaseline_SlashNormalization(t *testing.T) {
-	// finding как с Windows Walk (\); baseline как в JSON (/)
 	findings := []scan.Finding{{
 		File: filepath.FromSlash("dir/sub/a.py"),
 		Line: 1,
@@ -86,8 +105,8 @@ func TestFilterBaseline_SlashNormalization(t *testing.T) {
 		Rule: "empty-test",
 	}}
 	got := scan.FilterBaseline(findings, baseline)
-	if len(got) != 0 {
-		t.Fatalf("want suppressed after path normalize, got %v", got)
+	if len(got.Findings) != 0 {
+		t.Fatalf("want suppressed after path normalize, got %v", got.Findings)
 	}
 }
 

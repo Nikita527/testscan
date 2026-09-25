@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +14,7 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-const usage = "usage: testscan [path...] [--format text|json|sarif|html] [--fail-on error|warning|never] [--rule ID] [--disable ID] [--baseline path.json] [--workers N]"
+const usage = "usage: testscan [path...] [--format text|json|sarif|html] [--fail-on error|warning|never] [--rule ID] [--disable ID] [--baseline path.json] [--coverage path.json] [--workers N] [-o|--output PATH] [--open]"
 
 var errHelp = errors.New("help")
 
@@ -27,8 +26,11 @@ type cliArgs struct {
 	only       []string
 	disable    []string
 	baseline   string
+	coverage   string
 	workers    int
 	workersSet bool
+	output     string
+	open       bool
 }
 
 func main() {
@@ -59,15 +61,34 @@ func main() {
 		fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
 		os.Exit(2)
 	}
+	selected = rules.ApplyConfig(selected, cfg)
+	coveragePath := args.coverage
+	if coveragePath == "" {
+		coveragePath = rules.CoveragePathFromConfig(cfg)
+	}
+	if args.coverage != "" {
+		selected = rules.EnableOnlyHappyPathCoverage(selected, args.coverage)
+	}
 
-	findings, err := scan.Run(context.Background(), args.roots, scan.Options{
-		Rules:   selected,
-		Workers: args.workers,
+	result, err := scan.Run(context.Background(), args.roots, scan.Options{
+		Rules:            selected,
+		Workers:          args.workers,
+		Exclude:          cfg.Exclude,
+		PythonFiles:      cfg.PythonFiles,
+		RespectGitignore: cfg.RespectGitignore,
+		PathRoot:         cwd,
+		AssertHelpers:    cfg.AssertHelpers,
+		RuleSeverity:     rules.SeverityMap(cfg),
+		Overrides:        rules.PathOverrides(cfg),
+		PythonFunctions:  cfg.PythonFunctions,
+		PythonClasses:    cfg.PythonClasses,
+		CoveragePath:     coveragePath,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
 		os.Exit(2)
 	}
+	findings := result.Findings
 
 	if args.baseline != "" {
 		baseline, err := scan.LoadBaseline(args.baseline)
@@ -75,10 +96,14 @@ func main() {
 			fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
 			os.Exit(2)
 		}
-		findings = scan.FilterBaseline(findings, baseline)
+		res := scan.FilterBaseline(findings, baseline)
+		findings = res.Findings
+		if res.UsedLegacyMatch {
+			fmt.Fprintln(os.Stderr, "testscan: warning: baseline matched using legacy file+line+rule keys; re-save baseline to migrate to fingerprints")
+		}
 	}
 
-	if err := emitFindings(findings, args.format); err != nil {
+	if err := emitFindings(findings, result.Files, args.format, args.output, args.open); err != nil {
 		fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
 		os.Exit(2)
 	}
@@ -86,7 +111,7 @@ func main() {
 	os.Exit(exitCode(findings, args.failOn))
 }
 
-// applyConfig: CLI перекрывает конфиг; disable = config ∪ CLI.
+// applyConfig: CLI overrides config; disable = config ∪ CLI.
 func applyConfig(args cliArgs, cfg config.Config) cliArgs {
 	if !args.failOnSet && cfg.FailOn != "" {
 		args.failOn = cfg.FailOn
@@ -107,7 +132,7 @@ func applyConfig(args cliArgs, cfg config.Config) cliArgs {
 	return args
 }
 
-// parseArgs допускает флаги до и после путей (как в SPEC: testscan path --format json).
+// parseArgs allows flags before and after paths (per SPEC: testscan path --format json).
 func parseArgs(argv []string) (cliArgs, error) {
 	out := cliArgs{
 		format: "text",
@@ -161,6 +186,14 @@ func parseArgs(argv []string) (cliArgs, error) {
 			out.baseline = argv[i]
 		case strings.HasPrefix(a, "--baseline="):
 			out.baseline = strings.TrimPrefix(a, "--baseline=")
+		case a == "--coverage":
+			i++
+			if i >= len(argv) {
+				return cliArgs{}, fmt.Errorf("missing value for --coverage")
+			}
+			out.coverage = argv[i]
+		case strings.HasPrefix(a, "--coverage="):
+			out.coverage = strings.TrimPrefix(a, "--coverage=")
 		case a == "--workers":
 			i++
 			if i >= len(argv) {
@@ -180,6 +213,16 @@ func parseArgs(argv []string) (cliArgs, error) {
 			}
 			out.workers = n
 			out.workersSet = true
+		case a == "-o" || a == "--output":
+			i++
+			if i >= len(argv) {
+				return cliArgs{}, fmt.Errorf("missing value for %s", a)
+			}
+			out.output = argv[i]
+		case strings.HasPrefix(a, "--output="):
+			out.output = strings.TrimPrefix(a, "--output=")
+		case a == "--open":
+			out.open = true
 		case strings.HasPrefix(a, "-"):
 			return cliArgs{}, fmt.Errorf("unknown flag %s", a)
 		default:
@@ -197,16 +240,15 @@ func parseArgs(argv []string) (cliArgs, error) {
 	return out, nil
 }
 
-func writeFindings(w io.Writer, findings []scan.Finding, format string) error {
+func writeFindings(w io.Writer, findings []scan.Finding, fileCount int, format string) error {
+	score := scan.CalculateScore(findings, fileCount)
 	switch format {
 	case "json":
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(findings)
+		return scan.WriteJSON(w, findings, score)
 	case "sarif":
 		return scan.WriteSARIF(w, findings)
 	case "html":
-		return scan.WriteHTML(w, findings)
+		return scan.WriteHTML(w, findings, score)
 	default:
 		for _, f := range findings {
 			if _, err := fmt.Fprintf(w, "%s:%d: %s %s: %s\n",
@@ -214,7 +256,8 @@ func writeFindings(w io.Writer, findings []scan.Finding, format string) error {
 				return err
 			}
 		}
-		return nil
+		_, err := fmt.Fprintln(w, scan.FormatScoreLine(score))
+		return err
 	}
 }
 

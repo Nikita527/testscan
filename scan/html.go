@@ -9,26 +9,14 @@ import (
 )
 
 // WriteHTML encodes findings as a self-contained interactive HTML report
-// (summary + filter by severity/rule + groups by rule then file). Not a score dashboard.
-func WriteHTML(w io.Writer, findings []Finding) error {
+// with Health Score in the hero, filters, and groups by rule then file.
+func WriteHTML(w io.Writer, findings []Finding, score Score) error {
 	byRule := groupByRule(findings)
 	ruleIDs := make([]string, 0, len(byRule))
 	for id := range byRule {
 		ruleIDs = append(ruleIDs, id)
 	}
 	sort.Strings(ruleIDs)
-
-	var errors, warnings, notes int
-	for _, f := range findings {
-		switch strings.ToLower(f.Severity) {
-		case "error":
-			errors++
-		case "warning":
-			warnings++
-		default:
-			notes++
-		}
-	}
 
 	var b strings.Builder
 	b.WriteString("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n")
@@ -37,10 +25,20 @@ func WriteHTML(w io.Writer, findings []Finding) error {
 	b.WriteString(htmlCSS)
 	b.WriteString("</style>\n</head>\n<body>\n")
 	b.WriteString("<header class=\"hero\">\n")
+	b.WriteString("<div class=\"hero-top\">\n")
+	b.WriteString("<div class=\"hero-brand\">\n")
 	b.WriteString("<p class=\"brand\">testscan</p>\n")
 	b.WriteString("<h1>Findings report</h1>\n")
-	fmt.Fprintf(&b, "<p class=\"sub\">%d finding(s) · %d error · %d warning · %d other</p>\n",
-		len(findings), errors, warnings, notes)
+	fmt.Fprintf(&b, "<p class=\"sub\">%d finding(s) · %d error · %d warning · %d note · %d file(s)</p>\n",
+		len(findings), score.Errors, score.Warnings, score.Notes, score.Files)
+	b.WriteString("</div>\n")
+	writeScoreHero(&b, score)
+	b.WriteString("</div>\n")
+	b.WriteString("<div class=\"sev-breakdown\" aria-label=\"Severity breakdown\">\n")
+	fmt.Fprintf(&b, "<span class=\"chip chip-error\"><strong>%d</strong> error</span>\n", score.Errors)
+	fmt.Fprintf(&b, "<span class=\"chip chip-warning\"><strong>%d</strong> warning</span>\n", score.Warnings)
+	fmt.Fprintf(&b, "<span class=\"chip chip-note\"><strong>%d</strong> note</span>\n", score.Notes)
+	b.WriteString("</div>\n")
 	b.WriteString("</header>\n")
 
 	b.WriteString("<section class=\"filters\" aria-label=\"Filters\">\n")
@@ -113,6 +111,26 @@ func WriteHTML(w io.Writer, findings []Finding) error {
 
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+func writeScoreHero(b *strings.Builder, score Score) {
+	// Circumference of r=15.9155 ≈ 100 so dasharray percent maps 1:1.
+	pct := score.Value
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	grade := html.EscapeString(score.Grade)
+	fmt.Fprintf(b, "<div class=\"score\" data-grade=\"%s\" title=\"Health Score\">\n", grade)
+	b.WriteString("<svg viewBox=\"0 0 36 36\" aria-hidden=\"true\">\n")
+	b.WriteString("<path class=\"ring-bg\" d=\"M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831\"/>\n")
+	fmt.Fprintf(b, "<path class=\"ring-fg\" stroke-dasharray=\"%d, 100\" d=\"M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831\"/>\n", pct)
+	b.WriteString("</svg>\n")
+	fmt.Fprintf(b, "<div class=\"score-label\"><span class=\"score-value\">%d</span><span class=\"score-grade\">%s</span></div>\n",
+		score.Value, grade)
+	b.WriteString("</div>\n")
 }
 
 func groupByRule(findings []Finding) map[string][]Finding {
@@ -190,6 +208,13 @@ body {
     radial-gradient(ellipse 80% 60% at 10% -20%, rgba(61,154,120,.18), transparent),
     var(--bg);
 }
+.hero-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem 2rem;
+}
 .brand {
   margin: 0;
   font-size: .85rem;
@@ -200,6 +225,73 @@ body {
 }
 .hero h1 { margin: .35rem 0 .5rem; font-size: 1.75rem; font-weight: 600; }
 .sub { margin: 0; color: var(--muted); }
+.score {
+  position: relative;
+  width: 7.5rem;
+  height: 7.5rem;
+  flex: 0 0 auto;
+}
+.score svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.ring-bg {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2.8;
+}
+.ring-fg {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  transition: stroke-dasharray .4s ease;
+}
+.score[data-grade="A"] .ring-fg { stroke: var(--accent); }
+.score[data-grade="B"] .ring-fg { stroke: #4aaf8a; }
+.score[data-grade="C"] .ring-fg { stroke: var(--warning); }
+.score[data-grade="D"] .ring-fg { stroke: #d4783a; }
+.score[data-grade="F"] .ring-fg { stroke: var(--error); }
+.score-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+}
+.score-value {
+  font-size: 1.65rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.score-grade {
+  font-size: .85rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.sev-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: 1.1rem;
+}
+.chip {
+  font-size: .8rem;
+  padding: .3rem .65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+}
+.chip strong { color: var(--text); margin-right: .25rem; }
+.chip-error { border-color: rgba(232,93,93,.35); }
+.chip-warning { border-color: rgba(212,160,23,.35); }
+.chip-note { border-color: rgba(107,140,174,.35); }
 .filters {
   display: flex;
   flex-wrap: wrap;

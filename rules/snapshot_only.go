@@ -46,7 +46,7 @@ func hasSnapshotMarker(src string) bool {
 	return false
 }
 
-// hasBehavioralAssert — есть assert , не связанный со snapshot.
+// hasBehavioralAssert is true when there is an assert not tied to a snapshot.
 func hasBehavioralAssert(src string) bool {
 	for _, line := range strings.Split(src, "\n") {
 		t := strings.TrimSpace(line)

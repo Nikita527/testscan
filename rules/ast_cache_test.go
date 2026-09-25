@@ -26,16 +26,15 @@ func TestRun_ASTOncePerFile(t *testing.T) {
 			Name: "test_x", Lineno: 1, HasAssert: true,
 		}}},
 	}
-	restore := parse.SetParser(cp)
-	defer restore()
 
-	// 2 файла в scan/testdata × 2 AST-правила → раньше 4 spawn, с кэшем 2
+	// 2 files in scan/testdata × 2 AST rules → was 4 spawns, with cache 2
 	_, err := scan.Run(context.Background(), []string{"../scan/testdata"}, scan.Options{
 		Rules: []scan.Rule{
 			rules.NewEmptyTest(),
 			rules.NewDuplicateTestName(),
 		},
 		Workers: 2,
+		Parser:  cp,
 	})
 	if err != nil {
 		t.Fatal(err)

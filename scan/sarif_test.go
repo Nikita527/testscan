@@ -103,6 +103,41 @@ func TestWriteSARIF_Empty(t *testing.T) {
 	}
 }
 
+func TestWriteSARIF_QualNameAndFingerprint(t *testing.T) {
+	var buf bytes.Buffer
+	if err := scan.WriteSARIF(&buf, []scan.Finding{{
+		File:        "tests/test_a.py",
+		Line:        4,
+		Rule:        "empty-test",
+		Severity:    "error",
+		Message:     "empty",
+		QualName:    "TestFoo.test_bar",
+		Fingerprint: "abc123",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var report map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	runs := report["runs"].([]any)
+	run := runs[0].(map[string]any)
+	results := run["results"].([]any)
+	r0 := results[0].(map[string]any)
+
+	pf, _ := r0["partialFingerprints"].(map[string]any)
+	if pf["testscan/v1"] != "abc123" {
+		t.Fatalf("partialFingerprints=%v", pf)
+	}
+	if pf["primaryLocationLineHash"] == nil || pf["primaryLocationLineHash"] == "" {
+		t.Fatalf("missing primaryLocationLineHash: %v", pf)
+	}
+	props, _ := r0["properties"].(map[string]any)
+	if props["qualName"] != "TestFoo.test_bar" {
+		t.Fatalf("properties=%v", props)
+	}
+}
+
 func TestWriteSARIF_RelativizesAbsPath(t *testing.T) {
 	cwd, err := os.Getwd()
 	if err != nil {

@@ -33,8 +33,9 @@ func TestWriteHTML(t *testing.T) {
 		},
 	}
 
+	score := scan.CalculateScore(findings, 2)
 	var buf bytes.Buffer
-	if err := scan.WriteHTML(&buf, findings); err != nil {
+	if err := scan.WriteHTML(&buf, findings, score); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -50,6 +51,9 @@ func TestWriteHTML(t *testing.T) {
 		"data-sev=\"error\"",
 		"data-sev=\"warning\"",
 		`id="q"`,
+		"score-value",
+		"Health Score",
+		`data-grade=`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)
@@ -61,14 +65,15 @@ func TestWriteHTML(t *testing.T) {
 }
 
 func TestWriteHTML_Escapes(t *testing.T) {
-	var buf bytes.Buffer
-	err := scan.WriteHTML(&buf, []scan.Finding{{
+	findings := []scan.Finding{{
 		File:     `tests/<script>.py`,
 		Line:     1,
 		Rule:     "no-assert",
 		Severity: "error",
 		Message:  `x < y & "z"`,
-	}})
+	}}
+	var buf bytes.Buffer
+	err := scan.WriteHTML(&buf, findings, scan.CalculateScore(findings, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +94,7 @@ func TestWriteHTML_Escapes(t *testing.T) {
 
 func TestWriteHTML_Empty(t *testing.T) {
 	var buf bytes.Buffer
-	if err := scan.WriteHTML(&buf, nil); err != nil {
+	if err := scan.WriteHTML(&buf, nil, scan.CalculateScore(nil, 0)); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -98,5 +103,8 @@ func TestWriteHTML_Empty(t *testing.T) {
 	}
 	if !strings.Contains(out, "No findings") {
 		t.Fatal("want empty toc message")
+	}
+	if !strings.Contains(out, ">100<") && !strings.Contains(out, "score-value\">100") {
+		t.Fatalf("want perfect score in hero, got: %s", out[:min(400, len(out))])
 	}
 }

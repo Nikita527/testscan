@@ -126,6 +126,9 @@ func TestLoad_Missing(t *testing.T) {
 	if cfg.FailOn != "" || cfg.Workers != 0 || len(cfg.Disable) != 0 || cfg.Source != "" {
 		t.Fatalf("want empty config, got %+v", cfg)
 	}
+	if !cfg.RespectGitignore {
+		t.Fatal("RespectGitignore should default true")
+	}
 }
 
 func TestLoad_InvalidFailOn(t *testing.T) {
@@ -172,6 +175,95 @@ func TestLoad_PathsRelativeToConfigDir(t *testing.T) {
 	}
 }
 
+func TestLoad_ExtendedFields(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+fail-on = "warning"
+exclude = ["**/conftest.py"]
+assert-helpers = ["assert_*", "check_*"]
+python-files = ["test_*.py", "*_test.py"]
+python-functions = ["test_*"]
+python-classes = ["Test*"]
+respect-gitignore = false
+
+[rules.only-happy-path]
+severity = "note"
+min-tests = 5
+mode = "coverage"
+coverage = "coverage.json"
+negative-names = ["invalid", "forbidden"]
+
+[rules.todo-test]
+severity = "error"
+
+[[overrides]]
+path = "tests/integration/**"
+disable = ["only-happy-path"]
+`
+	if err := os.WriteFile(filepath.Join(dir, ".testscan.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RespectGitignore {
+		t.Fatal("want respect-gitignore false")
+	}
+	if len(cfg.Exclude) != 1 || cfg.Exclude[0] != "**/conftest.py" {
+		t.Fatalf("exclude=%v", cfg.Exclude)
+	}
+	if len(cfg.AssertHelpers) != 2 {
+		t.Fatalf("assert-helpers=%v", cfg.AssertHelpers)
+	}
+	oh := cfg.Rules["only-happy-path"]
+	if oh.Severity != "note" || oh.MinTests != 5 {
+		t.Fatalf("only-happy-path=%+v", oh)
+	}
+	if oh.Mode != "coverage" {
+		t.Fatalf("mode=%q, want coverage", oh.Mode)
+	}
+	wantCov := filepath.Join(dir, "coverage.json")
+	if oh.Coverage != wantCov {
+		t.Fatalf("coverage=%q, want %q", oh.Coverage, wantCov)
+	}
+	if len(oh.NegativeNames) != 2 || oh.NegativeNames[0] != "invalid" {
+		t.Fatalf("negative-names=%v", oh.NegativeNames)
+	}
+	if cfg.Rules["todo-test"].Severity != "error" {
+		t.Fatalf("todo-test=%+v", cfg.Rules["todo-test"])
+	}
+	if len(cfg.Overrides) != 1 || cfg.Overrides[0].Path != "tests/integration/**" {
+		t.Fatalf("overrides=%v", cfg.Overrides)
+	}
+}
+
+func TestLoad_PytestIniOptionsFallback(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[tool.testscan]
+fail-on = "error"
+
+[tool.pytest.ini_options]
+python_files = ["check_*.py"]
+python_functions = ["check_*"]
+python_classes = ["Check*"]
+`
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.PythonFiles) != 1 || cfg.PythonFiles[0] != "check_*.py" {
+		t.Fatalf("python-files=%v", cfg.PythonFiles)
+	}
+	if len(cfg.PythonFunctions) != 1 || cfg.PythonFunctions[0] != "check_*" {
+		t.Fatalf("python-functions=%v", cfg.PythonFunctions)
+	}
+}
+
 func TestLoad_AbsolutePathUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	abs := filepath.Join(dir, "abs_tests")
@@ -197,5 +289,20 @@ func TestLoad_AbsolutePathUnchanged(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("paths[0]=%q, want %q", got, want)
+	}
+}
+
+func TestLoad_InvalidOnlyHappyPathMode(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+[rules.only-happy-path]
+mode = "fast"
+`
+	if err := os.WriteFile(filepath.Join(dir, ".testscan.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.Load(dir)
+	if err == nil {
+		t.Fatal("want error for invalid mode")
 	}
 }

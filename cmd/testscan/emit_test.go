@@ -3,23 +3,21 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/Nikita527/testscan/scan"
 )
 
-func TestWriteHTMLFileAndOpen_WritesFile(t *testing.T) {
+func TestWriteFindingsToFile(t *testing.T) {
+	stubOpenReport(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "report.html")
 	findings := []scan.Finding{{
 		File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty",
 	}}
 
-	// On Windows this also tries to open the browser; Start() is async and should not fail
-	// for a valid file path. We still verify the file contents.
-	if err := writeHTMLFileAndOpen(path, findings); err != nil {
+	if err := writeFindingsToFile(path, findings, 1, "html"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -32,24 +30,55 @@ func TestWriteHTMLFileAndOpen_WritesFile(t *testing.T) {
 	}
 }
 
-func TestEmitFindings_HTMLWindowsWritesDefaultName(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows-only emit path")
-	}
+func TestEmitFindings_OutputAndOpen(t *testing.T) {
+	stubOpenReport(t)
 	dir := t.TempDir()
-	cwd, err := os.Getwd()
+	path := filepath.Join(dir, "out.html")
+	if err := emitFindings(nil, 0, "html", path, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("want output file: %v", err)
+	}
+}
+
+func TestEmitFindings_HTMLToStdoutByDefault(t *testing.T) {
+	// html without -o/--open goes to stdout (no Windows auto-write)
+	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(dir); err != nil {
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan error, 1)
+	go func() {
+		done <- emitFindings(nil, 0, "html", "", false)
+		_ = w.Close()
+	}()
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	for {
+		n, readErr := r.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	os.Stdout = old
+	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	out := buf.String()
+	if !strings.Contains(out, "<!DOCTYPE html>") {
+		t.Fatalf("want HTML on stdout, got %q", out[:min(120, len(out))])
+	}
+}
 
-	if err := emitFindings(nil, "html"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(defaultHTMLReport); err != nil {
-		t.Fatalf("want %s in cwd: %v", defaultHTMLReport, err)
-	}
+func stubOpenReport(t *testing.T) {
+	t.Helper()
+	prev := openReport
+	openReport = func(string) error { return nil }
+	t.Cleanup(func() { openReport = prev })
 }

@@ -13,7 +13,7 @@ type baselineKey struct {
 	rule string
 }
 
-func keyOf(f Finding) baselineKey {
+func legacyKeyOf(f Finding) baselineKey {
 	return baselineKey{
 		file: filepath.ToSlash(filepath.Clean(f.File)),
 		line: f.Line,
@@ -21,38 +21,68 @@ func keyOf(f Finding) baselineKey {
 	}
 }
 
-// FilterBaseline убирает findings, совпадающие с baseline по file+line+rule
-// (message игнорируется). Пустой/nil baseline — no-op.
-func FilterBaseline(findings, baseline []Finding) []Finding {
+// BaselineResult is the outcome of FilterBaseline.
+type BaselineResult struct {
+	Findings        []Finding
+	UsedLegacyMatch bool // true if any finding matched old file+line+rule entry
+}
+
+// FilterBaseline removes findings that match the baseline.
+// Prefer Fingerprint when present on both sides; fall back to legacy file+line+rule
+// when a baseline entry has an empty Fingerprint.
+func FilterBaseline(findings, baseline []Finding) BaselineResult {
 	if len(baseline) == 0 {
-		return findings
+		return BaselineResult{Findings: findings}
 	}
-	suppressed := make(map[baselineKey]struct{}, len(baseline))
+
+	fpSuppressed := make(map[string]struct{})
+	legacySuppressed := make(map[baselineKey]struct{})
 	for _, b := range baseline {
-		suppressed[keyOf(b)] = struct{}{}
+		if b.Fingerprint != "" {
+			fpSuppressed[b.Fingerprint] = struct{}{}
+		} else {
+			legacySuppressed[legacyKeyOf(b)] = struct{}{}
+		}
 	}
+
+	usedLegacy := false
 	out := make([]Finding, 0, len(findings))
 	for _, f := range findings {
-		if _, skip := suppressed[keyOf(f)]; skip {
+		if f.Fingerprint != "" {
+			if _, skip := fpSuppressed[f.Fingerprint]; skip {
+				continue
+			}
+		}
+		if _, skip := legacySuppressed[legacyKeyOf(f)]; skip {
+			usedLegacy = true
 			continue
 		}
 		out = append(out, f)
 	}
-	return out
+	return BaselineResult{Findings: out, UsedLegacyMatch: usedLegacy}
 }
 
-// LoadBaseline читает JSON-массив Finding (как --format json).
+// LoadBaseline reads a baseline JSON file.
+// Accepts a bare findings array (legacy) or the --format json wrapper
+// {"summary":…,"findings":[…]}.
 func LoadBaseline(path string) ([]Finding, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("baseline: %w", err)
 	}
 	var baseline []Finding
-	if err := json.Unmarshal(data, &baseline); err != nil {
+	if err := json.Unmarshal(data, &baseline); err == nil {
+		if baseline == nil {
+			baseline = []Finding{}
+		}
+		return baseline, nil
+	}
+	var report JSONReport
+	if err2 := json.Unmarshal(data, &report); err2 != nil {
 		return nil, fmt.Errorf("baseline: %w", err)
 	}
-	if baseline == nil {
-		baseline = []Finding{}
+	if report.Findings == nil {
+		report.Findings = []Finding{}
 	}
-	return baseline, nil
+	return report.Findings, nil
 }

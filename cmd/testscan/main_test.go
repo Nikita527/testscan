@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Nikita527/testscan/internal/config"
@@ -45,9 +46,12 @@ func TestParseArgs(t *testing.T) {
 		wantOnly     []string
 		wantDisable  []string
 		wantBaseline string
+		wantCoverage string
 		wantWorkers  int
 		wantWorkersS bool
 		wantFailOnS  bool
+		wantOutput   string
+		wantOpen     bool
 		wantErr      bool
 	}{
 		{
@@ -102,6 +106,14 @@ func TestParseArgs(t *testing.T) {
 			wantBaseline: "base.json",
 		},
 		{
+			name:         "coverage",
+			argv:         []string{"path", "--coverage", "coverage.json"},
+			wantRoots:    []string{"path"},
+			wantFormat:   "text",
+			wantFailOn:   "error",
+			wantCoverage: "coverage.json",
+		},
+		{
 			name:         "workers",
 			argv:         []string{"path", "--workers", "4"},
 			wantRoots:    []string{"path"},
@@ -111,7 +123,16 @@ func TestParseArgs(t *testing.T) {
 			wantWorkersS: true,
 		},
 		{
-			// конфликт ловит rules.Select, не parseArgs
+			name:       "output_and_open",
+			argv:       []string{"path", "--format", "html", "-o", "out.html", "--open"},
+			wantRoots:  []string{"path"},
+			wantFormat: "html",
+			wantFailOn: "error",
+			wantOutput: "out.html",
+			wantOpen:   true,
+		},
+		{
+			// conflict is caught by rules.Select, not parseArgs
 			name:        "conflict_passed_to_select",
 			argv:        []string{"--rule", "todo-test", "--disable", "todo-test"},
 			wantFormat:  "text",
@@ -148,11 +169,17 @@ func TestParseArgs(t *testing.T) {
 			if got.baseline != tc.wantBaseline {
 				t.Fatalf("baseline=%q, want %q", got.baseline, tc.wantBaseline)
 			}
+			if got.coverage != tc.wantCoverage {
+				t.Fatalf("coverage=%q, want %q", got.coverage, tc.wantCoverage)
+			}
 			if got.workers != tc.wantWorkers || got.workersSet != tc.wantWorkersS {
 				t.Fatalf("workers=%d set=%v, want %d set=%v", got.workers, got.workersSet, tc.wantWorkers, tc.wantWorkersS)
 			}
 			if got.failOnSet != tc.wantFailOnS {
 				t.Fatalf("failOnSet=%v, want %v", got.failOnSet, tc.wantFailOnS)
+			}
+			if got.output != tc.wantOutput || got.open != tc.wantOpen {
+				t.Fatalf("output=%q open=%v, want %q %v", got.output, got.open, tc.wantOutput, tc.wantOpen)
 			}
 		})
 	}
@@ -221,4 +248,28 @@ func strSliceEq(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestWriteFindings_TextAndJSONScore(t *testing.T) {
+	findings := []scan.Finding{{
+		File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty",
+	}}
+	var textBuf strings.Builder
+	if err := writeFindings(&textBuf, findings, 5, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(textBuf.String(), "Health Score:") {
+		t.Fatalf("text missing score: %q", textBuf.String())
+	}
+
+	var jsonBuf strings.Builder
+	if err := writeFindings(&jsonBuf, findings, 5, "json"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jsonBuf.String(), `"summary"`) || !strings.Contains(jsonBuf.String(), `"health_score"`) {
+		t.Fatalf("json missing summary: %s", jsonBuf.String())
+	}
+	if !strings.Contains(jsonBuf.String(), `"findings"`) {
+		t.Fatal("json missing findings key")
+	}
 }

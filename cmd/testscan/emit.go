@@ -12,21 +12,44 @@ import (
 
 const defaultHTMLReport = "testscan.html"
 
-// emitFindings writes the report. On Windows, --format html writes testscan.html
-// and opens it in the default browser instead of dumping HTML to the console.
-func emitFindings(findings []scan.Finding, format string) error {
-	if format == "html" && runtime.GOOS == "windows" {
-		return writeHTMLFileAndOpen(defaultHTMLReport, findings)
+// openReport opens an HTML path in the default browser. Tests replace this
+// to avoid "File Not Found" dialogs after t.TempDir cleanup.
+var openReport = openHTMLReport
+
+// emitFindings writes the report to stdout, or to -o/--output when set.
+// --open opens the HTML file in a browser (requires a file path: -o or default).
+func emitFindings(findings []scan.Finding, fileCount int, format, output string, open bool) error {
+	if open && format != "html" {
+		return fmt.Errorf("--open requires --format html")
 	}
-	return writeFindings(os.Stdout, findings, format)
+
+	if output != "" {
+		if err := writeFindingsToFile(output, findings, fileCount, format); err != nil {
+			return err
+		}
+		if open {
+			return openWrittenReport(output)
+		}
+		return nil
+	}
+
+	if open {
+		// no -o: write default HTML path then open
+		if err := writeFindingsToFile(defaultHTMLReport, findings, fileCount, "html"); err != nil {
+			return err
+		}
+		return openWrittenReport(defaultHTMLReport)
+	}
+
+	return writeFindings(os.Stdout, findings, fileCount, format)
 }
 
-func writeHTMLFileAndOpen(path string, findings []scan.Finding) error {
+func writeFindingsToFile(path string, findings []scan.Finding, fileCount int, format string) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	err = scan.WriteHTML(f, findings)
+	err = writeFindings(f, findings, fileCount, format)
 	closeErr := f.Close()
 	if err != nil {
 		return err
@@ -34,19 +57,24 @@ func writeHTMLFileAndOpen(path string, findings []scan.Finding) error {
 	if closeErr != nil {
 		return closeErr
 	}
-
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		abs = path
 	}
 	fmt.Fprintf(os.Stderr, "testscan: wrote %s\n", abs)
+	return nil
+}
 
-	if err := openHTMLReport(abs); err != nil {
-		fmt.Fprintf(os.Stderr, "testscan: open browser: %v\n", err)
-		// report is on disk; opening is best-effort
-	} else {
-		fmt.Fprintln(os.Stderr, "testscan: opened in default browser")
+func openWrittenReport(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
 	}
+	if err := openReport(abs); err != nil {
+		fmt.Fprintf(os.Stderr, "testscan: open browser: %v\n", err)
+		return nil // best-effort
+	}
+	fmt.Fprintln(os.Stderr, "testscan: opened in default browser")
 	return nil
 }
 

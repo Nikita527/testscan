@@ -13,10 +13,15 @@ func (emptyTest) ID() string {
 	return "empty-test"
 }
 
+func (emptyTest) NeedsAST() bool { return true }
+
 func (emptyTest) Check(file scan.File) []scan.Finding {
 	model, err := astModel(file)
 	if err != nil {
-		return emptyTestHeuristic(file)
+		if useHeuristic(file, err) {
+			return emptyTestHeuristic(file)
+		}
+		return nil
 	}
 	return emptyTestFromAST(file, model)
 }
@@ -27,12 +32,17 @@ func emptyTestFromAST(file scan.File, model parse.Model) []scan.Finding {
 		if !t.IsEmpty {
 			continue
 		}
+		q := t.QualName
+		if q == "" {
+			q = t.Name
+		}
 		findings = append(findings, scan.Finding{
 			File:     file.Path,
 			Line:     t.Lineno,
 			Rule:     "empty-test",
 			Severity: "error",
-			Message:  "empty test function: " + t.Name,
+			Message:  "empty test function: " + q,
+			QualName: q,
 		})
 	}
 	if len(model.Tests) == 0 && isVacuousTestFile(string(file.Content)) {
@@ -64,6 +74,7 @@ func emptyTestHeuristic(file scan.File) []scan.Finding {
 			Rule:     "empty-test",
 			Severity: "error",
 			Message:  "empty test function: " + name,
+			QualName: name,
 		})
 	}
 	if len(findings) == 0 && isVacuousTestFile(string(file.Content)) {
@@ -78,7 +89,7 @@ func emptyTestHeuristic(file scan.File) []scan.Finding {
 	return findings
 }
 
-// bodyVacuous: тело до следующего def/class на том же/меньшем отступе — только pass/docstring.
+// bodyVacuous: body until next def/class at same/less indent is only pass/docstring.
 func bodyVacuous(lines []string, defIdx int) bool {
 	defIndent := leadingSpaces(lines[defIdx])
 	for j := defIdx + 1; j < len(lines); j++ {
@@ -115,7 +126,7 @@ func leadingSpaces(s string) int {
 	return n
 }
 
-// isVacuousTestFile: пустой файл, либо только def/class + pass и/или одиночный docstring.
+// isVacuousTestFile: empty file, or only def/class + pass and/or a lone docstring.
 func isVacuousTestFile(src string) bool {
 	s := strings.TrimSpace(src)
 	if s == "" {

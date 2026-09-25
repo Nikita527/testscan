@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	"github.com/Nikita527/testscan/internal/parse"
 	"github.com/Nikita527/testscan/scan"
 )
 
@@ -12,13 +13,54 @@ func (overmockedIO) ID() string {
 	return "overmocked-io"
 }
 
+func (overmockedIO) NeedsAST() bool { return true }
+
 func (overmockedIO) Check(file scan.File) []scan.Finding {
-	src := string(file.Content)
-	if !hasIOPatch(src) {
+	model, err := astModel(file)
+	if err != nil {
+		if useHeuristic(file, err) {
+			return overmockedIOHeuristic(file)
+		}
 		return nil
 	}
-	hasMock := strings.Contains(src, "assert_called") ||
-		strings.Contains(src, "assert_has_calls")
+	return overmockedIOFromAST(file, model)
+}
+
+func overmockedIOFromAST(file scan.File, model parse.Model) []scan.Finding {
+	src := string(file.Content)
+	var findings []scan.Finding
+	for _, t := range model.Tests {
+		if !testHasIOPatch(t, src) {
+			continue
+		}
+		if !hasMockAssert(t) {
+			continue
+		}
+		if hasNonMockAssert(t) {
+			continue
+		}
+		q := t.QualName
+		if q == "" {
+			q = t.Name
+		}
+		findings = append(findings, scan.Finding{
+			File:     file.Path,
+			Line:     t.Lineno,
+			Rule:     "overmocked-io",
+			Severity: "warning",
+			Message:  "IO patched and only mock asserts found in test: " + q,
+			QualName: q,
+		})
+	}
+	return findings
+}
+
+func overmockedIOHeuristic(file scan.File) []scan.Finding {
+	src := string(file.Content)
+	if !ioPatchInContent(src) {
+		return nil
+	}
+	hasMock := strings.Contains(src, "assert_called") || strings.Contains(src, "assert_has_calls")
 	if !hasMock {
 		return nil
 	}
@@ -55,29 +97,6 @@ var ioPatchNeedles = []string{
 	`@patch('httpx.`,
 	`@patch("urllib`,
 	`@patch('urllib`,
-}
-
-func hasIOPatch(src string) bool {
-	for _, n := range ioPatchNeedles {
-		if strings.Contains(src, n) {
-			return true
-		}
-	}
-	// также patch.object(..., "open") и общие формы с pathlib/requests в строке patch
-	for _, line := range strings.Split(src, "\n") {
-		t := strings.TrimSpace(line)
-		if !strings.Contains(t, "patch") {
-			continue
-		}
-		if strings.Contains(t, "builtins.open") ||
-			strings.Contains(t, "pathlib") ||
-			strings.Contains(t, "requests.") ||
-			strings.Contains(t, "httpx.") ||
-			strings.Contains(t, "urllib") {
-			return true
-		}
-	}
-	return false
 }
 
 func NewOvermockedIO() scan.Rule {

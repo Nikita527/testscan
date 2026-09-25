@@ -37,10 +37,12 @@ type sarifDriver struct {
 }
 
 type sarifResult struct {
-	RuleID    string          `json:"ruleId"`
-	Level     string          `json:"level"`
-	Message   sarifMessage    `json:"message"`
-	Locations []sarifLocation `json:"locations"`
+	RuleID              string            `json:"ruleId"`
+	Level               string            `json:"level"`
+	Message             sarifMessage      `json:"message"`
+	Locations           []sarifLocation   `json:"locations"`
+	PartialFingerprints map[string]string `json:"partialFingerprints,omitempty"`
+	Properties          map[string]any    `json:"properties,omitempty"`
 }
 
 type sarifMessage struct {
@@ -73,7 +75,7 @@ func WriteSARIF(w io.Writer, findings []Finding) error {
 		if line < 1 {
 			line = 1 // SARIF requires startLine >= 1
 		}
-		results = append(results, sarifResult{
+		r := sarifResult{
 			RuleID:  f.Rule,
 			Level:   sarifLevel(f.Severity),
 			Message: sarifMessage{Text: f.Message},
@@ -83,7 +85,19 @@ func WriteSARIF(w io.Writer, findings []Finding) error {
 					Region:           sarifRegion{StartLine: line},
 				},
 			}},
-		})
+		}
+		if f.Fingerprint != "" {
+			r.PartialFingerprints = map[string]string{
+				"primaryLocationLineHash": PrimaryLocationLineHash(f),
+				"testscan/v1":             f.Fingerprint,
+			}
+		}
+		if f.QualName != "" {
+			r.Properties = map[string]any{
+				"qualName": f.QualName,
+			}
+		}
+		results = append(results, r)
 	}
 
 	report := sarifReport{

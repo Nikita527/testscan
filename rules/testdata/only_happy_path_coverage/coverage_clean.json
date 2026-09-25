@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "version": "7.0.0",
+    "branch_coverage": true
+  },
+  "files": {
+    "pkg/app.py": {
+      "executed_lines": [1, 2, 3, 4, 7, 8, 9, 10, 11],
+      "missing_lines": [],
+      "excluded_lines": [],
+      "missing_branches": [],
+      "summary": {
+        "covered_lines": 9,
+        "num_statements": 9,
+        "percent_covered": 100.0,
+        "missing_lines": 0,
+        "excluded_lines": 0
+      }
+    }
+  },
+  "totals": {
+    "covered_lines": 9,
+    "num_statements": 9,
+    "percent_covered": 100.0,
+    "missing_lines": 0,
+    "excluded_lines": 0
+  }
+}

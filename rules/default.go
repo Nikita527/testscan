@@ -16,5 +16,15 @@ func Default() []scan.Rule {
 		NewOvermockedIO(),
 		NewPrivateImport(),
 		NewNoBehaviorChange(),
+		NewFakeMockAssert(),
+		NewAssertTuple(),
+		NewBroadRaises(),
+		NewSwallowedException(),
+		NewAssertInEmptyableLoop(),
+		NewWeakAssert(),
+		NewMockTautology(),
+		NewSleepInTest(),
+		NewSkipWithoutReason(),
+		NewNearDuplicateTest(),
 	}
 }

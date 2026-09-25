@@ -2,7 +2,7 @@ package rules
 
 import "strings"
 
-// lineOf — 1-based номер строки первого вхождения needle; если нет — 1.
+// lineOf returns the 1-based line of the first needle occurrence; 1 if missing.
 func lineOf(src, needle string) int {
 	if needle == "" {
 		return 1
@@ -14,7 +14,7 @@ func lineOf(src, needle string) int {
 	return strings.Count(src[:idx], "\n") + 1
 }
 
-// lineOfAny — первая из needles, которая нашлась.
+// lineOfAny returns the line of the earliest matching needle.
 func lineOfAny(src string, needles ...string) int {
 	best := -1
 	bestLine := 1
