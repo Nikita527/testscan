@@ -87,10 +87,7 @@ func mockOnlyBoundaryPath(path string) bool {
 			return true
 		}
 	}
-	if strings.HasSuffix(base, "_client.py") {
-		return true
-	}
-	return false
+	return strings.HasSuffix(base, "_client.py")
 }
 
 func hasConstructorPatch(t parse.TestFunc, src string) bool {

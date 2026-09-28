@@ -244,7 +244,7 @@ func TestWriteHTML_PrecisionSortAndBadge(t *testing.T) {
 	if idxEmpty < 0 || idxAssertTrue < 0 || idxName < 0 || idxNoAssert < 0 {
 		t.Fatalf("missing rule sections: empty=%d assert=%d name=%d no=%d", idxEmpty, idxAssertTrue, idxName, idxNoAssert)
 	}
-	if !(idxEmpty < idxAssertTrue && idxAssertTrue < idxName && idxName < idxNoAssert) {
+	if idxEmpty >= idxAssertTrue || idxAssertTrue >= idxName || idxName >= idxNoAssert {
 		t.Fatalf("want precision desc order empty < assert-true < name-body < no-assert, got %d %d %d %d",
 			idxEmpty, idxAssertTrue, idxName, idxNoAssert)
 	}

@@ -246,7 +246,7 @@ func isPrivateName(name string) bool {
 	if len(r) < 2 {
 		return false
 	}
-	if !(unicode.IsLetter(r[1]) || r[1] == '_') {
+	if !unicode.IsLetter(r[1]) && r[1] != '_' {
 		return false
 	}
 	// _UPPER_CASE constants (import instead of duplicating a literal) are fine.

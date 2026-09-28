@@ -7,13 +7,13 @@ import (
 
 // JSONSummary is the health / counts block for --format json.
 type JSONSummary struct {
-	HealthScore int    `json:"health_score"`
-	Grade       string `json:"grade"`
-	Errors      int    `json:"errors"`
-	Warnings    int    `json:"warnings"`
-	Notes        int `json:"notes"`
-	Files        int `json:"files"`
-	ParseSkipped int `json:"parse_skipped"`
+	HealthScore  int    `json:"health_score"`
+	Grade        string `json:"grade"`
+	Errors       int    `json:"errors"`
+	Warnings     int    `json:"warnings"`
+	Notes        int    `json:"notes"`
+	Files        int    `json:"files"`
+	ParseSkipped int    `json:"parse_skipped"`
 	// WarningsInGrade / WarningsIgnored explain Health Score vs raw warning count.
 	WarningsInGrade int `json:"warnings_in_grade"`
 	WarningsIgnored int `json:"warnings_ignored"`
@@ -38,10 +38,10 @@ func WriteJSON(w io.Writer, findings []Finding, score Score) error {
 	}
 	report := JSONReport{
 		Summary: JSONSummary{
-			HealthScore: score.Value,
-			Grade:       score.Grade,
-			Errors:      score.Errors,
-			Warnings:    score.Warnings,
+			HealthScore:     score.Value,
+			Grade:           score.Grade,
+			Errors:          score.Errors,
+			Warnings:        score.Warnings,
 			Notes:           score.Notes,
 			Files:           score.Files,
 			ParseSkipped:    score.ParseSkipped,

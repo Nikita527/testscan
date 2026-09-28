@@ -18,7 +18,7 @@ func TestSleepInTest_DatetimeNow(t *testing.T) {
 		Model: parse.Model{
 			Imports: []parse.Import{{Kind: "from", Module: "datetime", Names: []string{"datetime"}}},
 			Tests: []parse.TestFunc{{
-				Name: "test_x",
+				Name:  "test_x",
 				Calls: []parse.Call{{Name: "datetime.now", Lineno: 3}},
 			}},
 		},
