@@ -14,7 +14,7 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-const usage = "usage: testscan [path...] [--format text|json|sarif|html] [--fail-on error|warning|never] [--rule ID] [--disable ID] [--baseline path.json] [--coverage path.json] [--workers N] [-o|--output PATH] [--open]"
+const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality] [--fail-on error|warning|never] [--rule ID] [--disable ID] [--baseline path.json] [--coverage path.json] [--diff base-ref] [--focus] [--workers N] [-o|--output PATH] [--open]"
 
 var errHelp = errors.New("help")
 
@@ -27,6 +27,8 @@ type cliArgs struct {
 	disable    []string
 	baseline   string
 	coverage   string
+	diff       string
+	focus      bool
 	workers    int
 	workersSet bool
 	output     string
@@ -70,6 +72,20 @@ func main() {
 		selected = rules.EnableOnlyHappyPathCoverage(selected, args.coverage)
 	}
 
+	var onlyPaths []string
+	if args.diff != "" {
+		changed, err := scan.DiffChangedPaths(args.diff, cwd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testscan: --diff: %v\n", err)
+			os.Exit(2)
+		}
+		onlyPaths = scan.FilterTestPaths(changed, cfg.PythonFiles)
+		if len(onlyPaths) == 0 {
+			fmt.Fprintf(os.Stderr, "testscan: --diff %s: no changed test files\n", args.diff)
+			os.Exit(0)
+		}
+	}
+
 	result, err := scan.Run(context.Background(), args.roots, scan.Options{
 		Rules:            selected,
 		Workers:          args.workers,
@@ -83,6 +99,7 @@ func main() {
 		PythonFunctions:  cfg.PythonFunctions,
 		PythonClasses:    cfg.PythonClasses,
 		CoveragePath:     coveragePath,
+		OnlyPaths:        onlyPaths,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
@@ -101,6 +118,10 @@ func main() {
 		if res.UsedLegacyMatch {
 			fmt.Fprintln(os.Stderr, "testscan: warning: baseline matched using legacy file+line+rule keys; re-save baseline to migrate to fingerprints")
 		}
+	}
+
+	if args.focus {
+		findings = scan.FilterFocus(findings)
 	}
 
 	if err := emitFindings(findings, result.Files, args.format, args.output, args.open); err != nil {
@@ -194,6 +215,16 @@ func parseArgs(argv []string) (cliArgs, error) {
 			out.coverage = argv[i]
 		case strings.HasPrefix(a, "--coverage="):
 			out.coverage = strings.TrimPrefix(a, "--coverage=")
+		case a == "--diff":
+			i++
+			if i >= len(argv) {
+				return cliArgs{}, fmt.Errorf("missing value for --diff")
+			}
+			out.diff = argv[i]
+		case strings.HasPrefix(a, "--diff="):
+			out.diff = strings.TrimPrefix(a, "--diff=")
+		case a == "--focus":
+			out.focus = true
 		case a == "--workers":
 			i++
 			if i >= len(argv) {
@@ -230,8 +261,8 @@ func parseArgs(argv []string) (cliArgs, error) {
 		}
 	}
 
-	if out.format != "text" && out.format != "json" && out.format != "sarif" && out.format != "html" {
-		return cliArgs{}, fmt.Errorf("invalid --format %q (want text|json|sarif|html)", out.format)
+	if out.format != "text" && out.format != "json" && out.format != "sarif" && out.format != "html" && out.format != "codequality" {
+		return cliArgs{}, fmt.Errorf("invalid --format %q (want text|json|sarif|html|codequality)", out.format)
 	}
 	if out.failOn != "error" && out.failOn != "warning" && out.failOn != "never" {
 		return cliArgs{}, fmt.Errorf("invalid --fail-on %q (want error|warning|never)", out.failOn)
@@ -249,6 +280,8 @@ func writeFindings(w io.Writer, findings []scan.Finding, fileCount int, format s
 		return scan.WriteSARIF(w, findings)
 	case "html":
 		return scan.WriteHTML(w, findings, score)
+	case "codequality":
+		return scan.WriteCodeQuality(w, findings)
 	default:
 		for _, f := range findings {
 			if _, err := fmt.Fprintf(w, "%s:%d: %s %s: %s\n",

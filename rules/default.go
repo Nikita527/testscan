@@ -26,5 +26,10 @@ func Default() []scan.Rule {
 		NewSleepInTest(),
 		NewSkipWithoutReason(),
 		NewNearDuplicateTest(),
+		NewNameBodyMismatch(),
+		NewSelfPatchedSUT(),
+		NewExpectedRecomputed(),
+		NewCommentedAssert(),
+		NewOverbroadEquality(),
 	}
 }

@@ -33,3 +33,42 @@ func TestAssertTrue_UnittestBoolCompare(t *testing.T) {
 		t.Errorf("rule = %q", got[0].Rule)
 	}
 }
+
+func TestAssertTrue_ConstantLiterals(t *testing.T) {
+	cases := []struct {
+		text string
+		hit  bool
+	}{
+		{"True", true},
+		{"1", true},
+		{`"ok"`, true},
+		{"'x'", true},
+		{"result", false},
+		{"value.is_valid", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.text, func(t *testing.T) {
+			got := rules.NewAssertTrue().Check(scan.File{
+				Path:    "t.py",
+				Content: []byte("def test_x():\n    assert " + tc.text + "\n"),
+				ModelOK: true,
+				Model: parse.Model{
+					Tests: []parse.TestFunc{{
+						Name: "test_x",
+						Asserts: []parse.Assert{{
+							Kind:   "truthy",
+							Lineno: 2,
+							Text:   tc.text,
+						}},
+					}},
+				},
+			})
+			if tc.hit && len(got) != 1 {
+				t.Fatalf("want hit, got %v", got)
+			}
+			if !tc.hit && len(got) != 0 {
+				t.Fatalf("want clean, got %v", got)
+			}
+		})
+	}
+}

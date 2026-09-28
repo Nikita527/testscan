@@ -1,2 +1,2 @@
 def test_ok():
-    assert 1 == 1
+    assert value is True

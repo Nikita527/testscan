@@ -1,7 +1,6 @@
 package rules_test
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,7 +10,11 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-func TestRules_HitClean(t *testing.T) {
+// minCorpusPrecision is the CI gate for labeled hit/clean fixtures.
+// A rule that starts flagging clean/ cases fails the build.
+const minCorpusPrecision = 0.95
+
+func TestCorpus(t *testing.T) {
 	cases := []struct {
 		name     string
 		rule     scan.Rule
@@ -23,7 +26,7 @@ func TestRules_HitClean(t *testing.T) {
 		{"empty-test", rules.NewEmptyTest(), "testdata/empty", "test_empty.py", "empty-test", 1},
 		{"no-assert", rules.NewNoAssert(), "testdata/no_assert", "test_no_assert.py", "no-assert", 1},
 		{"assert-true", rules.NewAssertTrue(), "testdata/assert_true", "test_assert_true.py", "assert-true", 2},
-		{"mock-only-assert", rules.NewMockOnlyAssert(), "testdata/mock_only_assert", "test_mock_only.py", "mock-only-assert", 2},
+		{"mock-only-assert", rules.NewMockOnlyAssert(), "testdata/mock_only_assert", "test_mock_only.py", "mock-only-assert", 3},
 		{"todo-test", rules.NewTodoTest(), "testdata/todo", "test_todo.py", "todo-test", 2},
 		{"duplicate-test-name", rules.NewDuplicateTestName(), "testdata/duplicate_test_name", "test_dup.py", "duplicate-test-name", 5},
 		{"only-happy-path", rules.NewOnlyHappyPath(), "testdata/only_happy_path", "test_happy.py", "only-happy-path", 1},
@@ -42,37 +45,66 @@ func TestRules_HitClean(t *testing.T) {
 		{"sleep-in-test", rules.NewSleepInTest(), "testdata/sleep_in_test", "test_sleep.py", "sleep-in-test", 5},
 		{"skip-without-reason", rules.NewSkipWithoutReason(), "testdata/skip_without_reason", "test_skip.py", "skip-without-reason", 5},
 		{"near-duplicate-test", rules.NewNearDuplicateTest(), "testdata/near_duplicate_test", "test_dup.py", "near-duplicate-test", 6},
+		{"name-body-mismatch", rules.NewNameBodyMismatch(), "testdata/name_body_mismatch", "test_mismatch.py", "name-body-mismatch", 1},
+		{"self-patched-sut", rules.NewSelfPatchedSUT(), "testdata/self_patched_sut", "test_self.py", "self-patched-sut", 6},
+		{"expected-recomputed", rules.NewExpectedRecomputed(), "testdata/expected_recomputed", "test_recomputed.py", "expected-recomputed", 3},
+		{"commented-assert", rules.NewCommentedAssert(), "testdata/commented_assert", "test_commented.py", "commented-assert", 3},
+		{"overbroad-equality", rules.NewOverbroadEquality(), "testdata/overbroad_equality", "test_huge.py", "overbroad-equality", 3},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := scan.Run(context.Background(), []string{tc.root}, scan.Options{
-				Rules: []scan.Rule{tc.rule},
-			})
+			res, err := testRun(t, []string{tc.root}, tc.rule)
 			if err != nil {
 				t.Fatal(err)
 			}
 			findings := res.Findings
-			if len(findings) != 1 {
-				t.Fatalf("got %d findings, want 1 (hit only): %+v", len(findings), findings)
+			if len(findings) < 1 {
+				t.Fatalf("got 0 findings, want ≥1 hit")
 			}
-			if filepath.Base(findings[0].File) != tc.wantFile {
-				t.Errorf("got file %s, want %s", findings[0].File, tc.wantFile)
+			var tp, fp int
+			matched := false
+			for _, f := range findings {
+				parent := filepath.Base(filepath.Dir(f.File))
+				if parent != "hit" {
+					t.Errorf("finding outside hit/: %s", f.File)
+				}
+				ruleMatch := f.Rule == tc.wantRule || strings.HasPrefix(f.Rule, tc.wantRule)
+				switch parent {
+				case "hit":
+					if ruleMatch {
+						tp++
+					}
+					if filepath.Base(f.File) == tc.wantFile && f.Rule == tc.wantRule && f.Line == tc.wantLine {
+						matched = true
+					}
+				case "clean":
+					if ruleMatch {
+						fp++
+					}
+				}
 			}
-			if findings[0].Rule != tc.wantRule {
-				t.Errorf("got rule %q, want %q", findings[0].Rule, tc.wantRule)
+			if !matched {
+				t.Fatalf("missing expected hit %s:%d %s among %+v", tc.wantFile, tc.wantLine, tc.wantRule, findings)
 			}
-			if findings[0].Line != tc.wantLine {
-				t.Errorf("got line %d, want %d", findings[0].Line, tc.wantLine)
+			if tp < 1 {
+				t.Fatalf("expected ≥1 true positive in %s/hit", tc.root)
 			}
+			total := tp + fp
+			precision := float64(tp) / float64(total)
+			if precision < minCorpusPrecision {
+				t.Fatalf("precision=%.2f (tp=%d fp=%d) below %.2f on %s",
+					precision, tp, fp, minCorpusPrecision, tc.root)
+			}
+			t.Logf("precision=%.2f (tp=%d fp=%d)", precision, tp, fp)
 		})
 	}
 }
 
 func TestDefault(t *testing.T) {
 	got := rules.Default()
-	if len(got) != 22 {
-		t.Fatalf("got %d rules, want 22", len(got))
+	if len(got) != 27 {
+		t.Fatalf("got %d rules, want 27", len(got))
 	}
 }
 
@@ -256,6 +288,247 @@ func TestMockTautology_UnrelatedTrueClean(t *testing.T) {
 	}
 }
 
+func TestMockTautology_SUTEchoClean(t *testing.T) {
+	rule := rules.NewMockTautology()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_ok", QualName: "test_ok", Lineno: 1,
+				Assignments: []parse.Assignment{{Target: "m.return_value", Value: "None", Lineno: 2}},
+				Asserts: []parse.Assert{{
+					Kind: "compare", Text: "ensure.execute() is None",
+					Left: "ensure.execute()", Right: "None", LeftIsCall: true, Lineno: 3,
+				}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("SUT call matching mock return_value must not hit, got %v", got)
+	}
+}
+
+func TestMockTautology_PatchedSelf(t *testing.T) {
+	// Decorator patch(... return_value=) + assert target() == X is owned by self-patched-sut.
+	rule := rules.NewMockTautology()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Decorators: []string{`patch("mod.func", return_value=42)`},
+				Asserts: []parse.Assert{{
+					Kind: "compare", Text: "mod.func() == 42",
+					Left: "mod.func()", Right: "42", LeftIsCall: true, Lineno: 3,
+				}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("decorator patch echo belongs to self-patched-sut, got %v", got)
+	}
+}
+
+func TestNoAssert_SeverityNote(t *testing.T) {
+	rule := rules.NewNoAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("def test_x():\n    do_something()\n"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Calls: []parse.Call{{Name: "do_something", Lineno: 2, Bare: true}},
+			}},
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %v", got)
+	}
+	if got[0].Severity != "note" {
+		t.Fatalf("severity=%q, want note", got[0].Severity)
+	}
+}
+
+func TestNoAssert_NoRaiseNameClean(t *testing.T) {
+	rule := rules.NewNoAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_does_not_raise", QualName: "test_does_not_raise", Lineno: 1,
+				Calls: []parse.Call{{Name: "process", Lineno: 2, Bare: true}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("no-raise name must be clean, got %v", got)
+	}
+}
+
+func TestNoAssert_PrivateHelperFollow(t *testing.T) {
+	rule := rules.NewNoAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Helpers: []parse.Helper{{Name: "_assert_ok", QualName: "_assert_ok", HasAssert: true}},
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Calls: []parse.Call{{Name: "_assert_ok", Lineno: 2}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("helper with assert must be clean, got %v", got)
+	}
+}
+
+func TestMockOnlyAssert_ProceduralClean(t *testing.T) {
+	rule := rules.NewMockOnlyAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Calls: []parse.Call{
+					{Name: "do_work", Lineno: 2, Bare: true},
+					{Name: "mock.assert_called", Lineno: 3, Bare: true},
+				},
+				Asserts: []parse.Assert{{Kind: "mock_method", Lineno: 3, Text: "mock.assert_called()"}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("procedural SUT must be clean, got %v", got)
+	}
+}
+
+func TestMockOnlyAssert_BoundaryPathClean(t *testing.T) {
+	rule := rules.NewMockOnlyAssert()
+	got := rule.Check(scan.File{
+		Path:    "tests/clients/test_foo.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Calls: []parse.Call{
+					{Name: "compute", Lineno: 2, Bare: false},
+					{Name: "mock.assert_called", Lineno: 3, Bare: true},
+				},
+				Asserts: []parse.Assert{{Kind: "mock_method", Lineno: 3}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("clients/ path must be clean, got %v", got)
+	}
+}
+
+func TestBroadRaises_SpecificWithAttrClean(t *testing.T) {
+	rule := rules.NewBroadRaises()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Raises: []parse.Raise{{
+					Exc: "ValueError", HasMatch: false, BodyStmtCount: 1,
+					Lineno: 2, EndLineno: 3, AsName: "exc_info",
+				}},
+				Asserts: []parse.Assert{{
+					Kind: "compare", Text: "exc_info.value.code == 'x'",
+					Left: "exc_info.value.code", Right: "'x'", Lineno: 4,
+				}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("specific exc + value.attr must be clean, got %v", got)
+	}
+}
+
+func TestBroadRaises_ExceptionWithAttrStillHits(t *testing.T) {
+	rule := rules.NewBroadRaises()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Raises: []parse.Raise{{
+					Exc: "Exception", HasMatch: false, BodyStmtCount: 1,
+					Lineno: 2, EndLineno: 3, AsName: "exc_info",
+				}},
+				Asserts: []parse.Assert{{
+					Kind: "compare", Text: "exc_info.value.code == 'x'",
+					Left: "exc_info.value.code", Right: "'x'", Lineno: 4,
+				}},
+			}},
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("broad Exception must still hit even with attr check, got %v", got)
+	}
+	if !strings.Contains(got[0].Message, "concrete exception") {
+		t.Fatalf("message=%q, want concrete exception advice", got[0].Message)
+	}
+}
+
+func TestNoAssert_BodyHelperWithoutPrefix(t *testing.T) {
+	rule := rules.NewNoAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Helpers: []parse.Helper{{Name: "verify_result", QualName: "verify_result", HasAssert: true}},
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Calls: []parse.Call{{Name: "verify_result", Lineno: 2}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("helper with assert body must be clean, got %v", got)
+	}
+}
+
+func TestMockOnlyAssert_AdaptersPathClean(t *testing.T) {
+	rule := rules.NewMockOnlyAssert()
+	got := rule.Check(scan.File{
+		Path:    "tests/adapters/azure/test_cred.py",
+		Content: []byte("x"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				Calls: []parse.Call{
+					{Name: "compute", Lineno: 2, Bare: false},
+					{Name: "mock.assert_called", Lineno: 3, Bare: true},
+				},
+				Asserts: []parse.Assert{{Kind: "mock_method", Lineno: 3}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("adapters/ path must be clean, got %v", got)
+	}
+}
+
 func TestPrivateImport_Heuristics(t *testing.T) {
 	rule := rules.NewPrivateImport()
 	cases := []struct {
@@ -264,12 +537,13 @@ func TestPrivateImport_Heuristics(t *testing.T) {
 		hit  int
 	}{
 		{"from_private_symbol", "from mymodule import _helper\n", 1},
-		{"from_multi_private", "from mymodule import _a, helper, _b\n", 2},
+		{"from_multi_private", "from mymodule import _a, helper, _b\n", 1},
 		{"import_private_submodule", "import mymodule._internal\n", 1},
 		{"import_stdlib_private_toplevel", "import _thread\n", 0},
 		{"import_ast_stdlib", "import _ast\n", 0},
 		{"from_public", "from mymodule import helper\n", 0},
 		{"dunder", "from mymodule import __version__\n", 0},
+		{"upper_const", "from mymodule import _FOO_BAR, _HTTP_STATUS\n", 0},
 		{"multi_line_file", "from mymodule import _helper\nimport pkg._internal\n", 2},
 		{"tests_package_helper", "from tests.blueprint.test_api import _build\n", 0},
 		{"relative_test_helper", "from .test_documents_api import _build\n", 0},
@@ -289,8 +563,8 @@ func TestPrivateImport_Heuristics(t *testing.T) {
 				if f.Severity != "note" {
 					t.Fatalf("severity=%q, want note", f.Severity)
 				}
-				if !strings.Contains(f.Message, "_") {
-					t.Fatalf("message should include private name: %q", f.Message)
+				if !strings.Contains(f.Message, "submodule") {
+					t.Fatalf("message should mention submodule candidate: %q", f.Message)
 				}
 			}
 		})
@@ -313,16 +587,19 @@ func TestPrivateImport_AllFromModel(t *testing.T) {
 			},
 		},
 	})
-	if len(got) != 3 {
-		t.Fatalf("want 3 findings, got %d (%v)", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("want 2 findings (one per import stmt), got %d (%v)", len(got), got)
 	}
 	for _, f := range got {
 		if f.Severity != "note" {
 			t.Fatalf("severity=%q, want note", f.Severity)
 		}
-		if !strings.Contains(f.Message, "_") {
-			t.Fatalf("message should include private name: %q", f.Message)
+		if !strings.Contains(f.Message, "submodule") {
+			t.Fatalf("message should mention submodule candidate: %q", f.Message)
 		}
+	}
+	if !strings.Contains(got[0].Message, "_a") || !strings.Contains(got[0].Message, "_b") {
+		t.Fatalf("aggregated finding should list both names: %q", got[0].Message)
 	}
 }
 
@@ -407,5 +684,266 @@ func TestNearDuplicate_DefaultNote(t *testing.T) {
 	}
 	if got[0].Severity != "note" {
 		t.Fatalf("severity=%q, want note", got[0].Severity)
+	}
+	if got[0].RelatedQualName != "test_a" || got[0].RelatedLine != 1 {
+		t.Fatalf("related=%s:%d, want test_a:1", got[0].RelatedQualName, got[0].RelatedLine)
+	}
+	if !strings.Contains(got[0].Message, "test_a:1") {
+		t.Fatalf("message=%q, want twin qual:line", got[0].Message)
+	}
+}
+
+func TestNearDuplicate_OppositePolarityClean(t *testing.T) {
+	rule := rules.NewNearDuplicateTest()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("def test_accepts_item():\n    assert out\ndef test_rejects_item():\n    assert out\n"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{
+				{Name: "test_accepts_item", QualName: "test_accepts_item", Lineno: 1, BodyNorm: "out = process(item)\nassert out"},
+				{Name: "test_rejects_item", QualName: "test_rejects_item", Lineno: 3, BodyNorm: "out = process(item)\nassert out"},
+			},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("opposite polarity must be clean, got %v", got)
+	}
+}
+
+func TestNearDuplicate_DifferentEnumClean(t *testing.T) {
+	rule := rules.NewNearDuplicateTest()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{
+				{
+					Name: "test_managed", QualName: "test_managed", Lineno: 1,
+					BodyNorm: `mode = resolve_auth()\nassert mode == "STR"`,
+					Asserts:  []parse.Assert{{Kind: "compare", Text: `mode == "MANAGED_IDENTITY"`, Right: `"MANAGED_IDENTITY"`}},
+				},
+				{
+					Name: "test_default", QualName: "test_default", Lineno: 4,
+					BodyNorm: `mode = resolve_auth()\nassert mode == "STR"`,
+					Asserts:  []parse.Assert{{Kind: "compare", Text: `mode == "DEFAULT_CHAIN"`, Right: `"DEFAULT_CHAIN"`}},
+				},
+			},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("different enum literals must be clean, got %v", got)
+	}
+}
+
+func TestNearDuplicate_DifferentSUTClean(t *testing.T) {
+	rule := rules.NewNearDuplicateTest()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{
+				{
+					Name: "test_a", QualName: "test_a", Lineno: 1,
+					BodyNorm: "assert resolve_product_field(row) == expected",
+					Calls:    []parse.Call{{Name: "resolve_product_field"}},
+				},
+				{
+					Name: "test_b", QualName: "test_b", Lineno: 3,
+					BodyNorm: "assert resolve_product_field(row) == expected", // same BodyNorm for the filter under test
+					Calls:    []parse.Call{{Name: "detect_product_filter_mode"}},
+				},
+			},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("different SUT must be clean, got %v", got)
+	}
+}
+
+func TestNearDuplicate_ClusterParametrize(t *testing.T) {
+	rule := rules.NewNearDuplicateTest()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{
+				{
+					Name: "test_copy_name_prefix", QualName: "test_copy_name_prefix", Lineno: 1,
+					BodyNorm: `assert copy_name(STR) == STR`,
+					Asserts:  []parse.Assert{{Kind: "compare", Right: `"copy_of_a"`}},
+					Calls:    []parse.Call{{Name: "copy_name"}},
+				},
+				{
+					Name: "test_copy_name_suffix", QualName: "test_copy_name_suffix", Lineno: 4,
+					BodyNorm: `assert copy_name(STR) == STR`,
+					Asserts:  []parse.Assert{{Kind: "compare", Right: `"copy_of_b"`}},
+					Calls:    []parse.Call{{Name: "copy_name"}},
+				},
+				{
+					Name: "test_copy_name_middle", QualName: "test_copy_name_middle", Lineno: 7,
+					BodyNorm: `assert copy_name(STR) == STR`,
+					Asserts:  []parse.Assert{{Kind: "compare", Right: `"copy_of_c"`}},
+					Calls:    []parse.Call{{Name: "copy_name"}},
+				},
+			},
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("want 1 cluster finding, got %v", got)
+	}
+	if got[0].Line != 1 {
+		t.Fatalf("cluster finding line=%d, want 1 (first test)", got[0].Line)
+	}
+	if !strings.Contains(got[0].Message, "parametrize") {
+		t.Fatalf("message should include parametrize sketch: %q", got[0].Message)
+	}
+	if !strings.Contains(got[0].Message, "3 near-duplicate") {
+		t.Fatalf("message should mention cluster size: %q", got[0].Message)
+	}
+}
+
+func TestWeakAssert_LenExactNotWeak(t *testing.T) {
+	rule := rules.NewWeakAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("def test_len():\n    assert len(ids) == 200\n"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_len", QualName: "test_len", Lineno: 1,
+				Asserts: []parse.Assert{{
+					Kind: "compare", Text: "len(ids) == 200", Left: "len(ids)", Right: "200", Lineno: 2,
+				}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("len == 200 must not be weak-assert, got %v", got)
+	}
+}
+
+func TestWeakAssert_AcceptsIsValidClean(t *testing.T) {
+	rule := rules.NewWeakAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("def test_accepts_x():\n    assert result.is_valid\n"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_accepts_x", QualName: "test_accepts_x", Lineno: 1,
+				Asserts: []parse.Assert{{
+					Kind: "truthy", Text: "result.is_valid", Lineno: 2,
+				}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("accepts_* is_valid must not be weak-assert, got %v", got)
+	}
+}
+
+func TestWeakAssert_RejectsShallowHit(t *testing.T) {
+	rule := rules.NewWeakAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("def test_rejects_x():\n    assert not result.is_valid\n    assert result.errors\n"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_rejects_x", QualName: "test_rejects_x", Lineno: 1,
+				Asserts: []parse.Assert{
+					{Kind: "truthy", Text: "not result.is_valid", Lineno: 2},
+					{Kind: "truthy", Text: "result.errors", Lineno: 3},
+				},
+			}},
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("shallow rejects_* should hit, got %v", got)
+	}
+}
+
+func TestWeakAssert_StatusGETHit(t *testing.T) {
+	rule := rules.NewWeakAssert()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("def test_get_item():\n    client.get('/x')\n    assert response.status_code == 200\n"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_get_item", QualName: "test_get_item", Lineno: 1, EndLineno: 3,
+				Calls: []parse.Call{{Name: "client.get", Lineno: 2, Bare: true}},
+				Asserts: []parse.Assert{{
+					Kind: "compare", Text: "response.status_code == 200",
+					Left: "response.status_code", Right: "200", Lineno: 3,
+				}},
+			}},
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("status-only GET should hit, got %v", got)
+	}
+}
+
+func TestOnlyHappyPath_HTTPConstClean(t *testing.T) {
+	rule := rules.NewOnlyHappyPathMin(3)
+	tests := make([]parse.TestFunc, 0, 4)
+	for i, name := range []string{"test_a", "test_b", "test_c", "test_d"} {
+		a := parse.Assert{Kind: "compare", Text: "1 == 1", Left: "1", Right: "1", Lineno: i*3 + 2}
+		if i == 3 {
+			a = parse.Assert{
+				Kind: "compare", Text: "resp.status_code == status.HTTP_403_FORBIDDEN",
+				Left: "resp.status_code", Right: "status.HTTP_403_FORBIDDEN", Lineno: i*3 + 2,
+			}
+		}
+		tests = append(tests, parse.TestFunc{
+			Name: name, QualName: name, Lineno: i*3 + 1, Asserts: []parse.Assert{a},
+		})
+	}
+	got := rule.Check(scan.File{
+		Path: "t.py", Content: []byte("status.HTTP_403_FORBIDDEN"), ModelOK: true, Model: parse.Model{Tests: tests},
+	})
+	if len(got) != 0 {
+		t.Fatalf("HTTP_403 const must count as negative, got %v", got)
+	}
+}
+
+func TestOnlyHappyPath_BlockedNameClean(t *testing.T) {
+	rule := rules.NewOnlyHappyPathMin(3)
+	tests := []parse.TestFunc{
+		{Name: "test_a", QualName: "test_a", Lineno: 1, Asserts: []parse.Assert{{Kind: "compare", Text: "1 == 1", Left: "1", Right: "1", Lineno: 2}}},
+		{Name: "test_b", QualName: "test_b", Lineno: 3, Asserts: []parse.Assert{{Kind: "compare", Text: "1 == 1", Left: "1", Right: "1", Lineno: 4}}},
+		{Name: "test_c", QualName: "test_c", Lineno: 5, Asserts: []parse.Assert{{Kind: "compare", Text: "1 == 1", Left: "1", Right: "1", Lineno: 6}}},
+		{Name: "test_returns_403_when_blocked", QualName: "test_returns_403_when_blocked", Lineno: 7,
+			Asserts: []parse.Assert{{Kind: "compare", Text: "1 == 1", Left: "1", Right: "1", Lineno: 8}}},
+	}
+	got := rule.Check(scan.File{
+		Path: "t.py", Content: []byte("x"), ModelOK: true, Model: parse.Model{Tests: tests},
+	})
+	if len(got) != 0 {
+		t.Fatalf("blocked/403 name must count as negative, got %v", got)
+	}
+}
+
+func TestAssertInEmptyableLoop_RangeConstClean(t *testing.T) {
+	rule := rules.NewAssertInEmptyableLoop()
+	got := rule.Check(scan.File{
+		Path:    "t.py",
+		Content: []byte("def test_x():\n    for i in range(10):\n        assert i >= 0\n"),
+		ModelOK: true,
+		Model: parse.Model{
+			Tests: []parse.TestFunc{{
+				Name: "test_x", QualName: "test_x", Lineno: 1,
+				ForLoops: []parse.ForLoop{{
+					Lineno: 2, EndLineno: 3, OnlyAsserts: true,
+					IterKind: "range_const", IterText: "range(10)",
+				}},
+				Asserts: []parse.Assert{{Kind: "compare", Text: "i >= 0", Left: "i", Right: "0", Lineno: 3}},
+			}},
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("range(10) must not hit emptyable-loop, got %v", got)
 	}
 }

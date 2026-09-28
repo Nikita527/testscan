@@ -28,6 +28,12 @@ type Finding struct {
 	QualName string `json:"qual_name,omitempty"`
 	// Fingerprint is a stable id (rule+file+qualname+snippet hash).
 	Fingerprint string `json:"fingerprint,omitempty"`
+
+	// Snippet is ±5 lines of source around Line (filled by AssignFingerprints).
+	Snippet string `json:"snippet,omitempty"`
+	// RelatedLine / RelatedQualName point at a twin (e.g. near-duplicate).
+	RelatedLine     int    `json:"related_line,omitempty"`
+	RelatedQualName string `json:"related_qual_name,omitempty"`
 }
 
 // PathOverride disables rules for paths matching Path (glob).
@@ -87,6 +93,10 @@ type Options struct {
 
 	// CoveragePath — path to coverage.py JSON report for ProjectRule coverage mode.
 	CoveragePath string
+
+	// OnlyPaths, when non-empty, restricts Walk to these slash-relative (or absolute)
+	// paths — used by --diff to scan only changed/added test files.
+	OnlyPaths []string
 }
 
 // ProjectInfo is passed to ProjectRule.CheckProject after per-file checks.
@@ -123,6 +133,7 @@ func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
 		PythonFiles:      opts.PythonFiles,
 		RespectGitignore: opts.RespectGitignore,
 		Root:             pathRoot,
+		OnlyPaths:        opts.OnlyPaths,
 	})
 	if err != nil {
 		return Result{}, err
@@ -151,7 +162,7 @@ func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
 
 	var batchPool chan *parse.Batch
 	if needAST && opts.Parser == nil {
-		batchPool = startBatchPool(gctx, workers)
+		batchPool = startBatchPool(gctx, batchPoolSize(workers, len(files)))
 	}
 
 	for i, file := range files {
@@ -193,6 +204,10 @@ func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
 	for _, rule := range opts.Rules {
 		pr, ok := rule.(ProjectRule)
 		if !ok {
+			continue
+		}
+		// Diff / OnlyPaths mode is per-file only — skip project-wide rules.
+		if len(opts.OnlyPaths) > 0 {
 			continue
 		}
 		extra := pr.CheckProject(ctx, ProjectInfo{
@@ -250,6 +265,19 @@ func ApplySeverity(findings []Finding, sev map[string]string) {
 			findings[i].Severity = s
 		}
 	}
+}
+
+// batchPoolSize caps the Python helper pool at min(workers, max(1, nFiles))
+// so a one-file CLI/diff scan does not spawn NumCPU helpers.
+func batchPoolSize(workers, nFiles int) int {
+	n := nFiles
+	if n < 1 {
+		n = 1
+	}
+	if workers < n {
+		return workers
+	}
+	return n
 }
 
 func startBatchPool(ctx context.Context, n int) chan *parse.Batch {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import base64
 import fnmatch
 import json
 import sys
@@ -49,6 +50,23 @@ def _body_is_empty(body: list[ast.stmt]) -> bool:
             continue
         return False
     return True
+
+
+def _decorator_is_fixture(dec: ast.expr) -> bool:
+    if isinstance(dec, ast.Call):
+        return _call_name(dec.func).rsplit(".", 1)[-1] == "fixture"
+    return _call_name(dec).rsplit(".", 1)[-1] == "fixture"
+
+
+def _is_fixture_function(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return any(_decorator_is_fixture(d) for d in fn.decorator_list)
+
+
+def _class_has_init(cls: ast.ClassDef) -> bool:
+    for stmt in cls.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "__init__":
+            return True
+    return False
 
 
 def _call_name(node: ast.AST) -> str:
@@ -139,6 +157,69 @@ def _body_only_asserts(body: list[ast.stmt]) -> bool:
             return False
         saw = True
     return saw
+
+
+def _is_const_name(name: str) -> bool:
+    """True for UPPER_CASE / UPPERCASE modular constants (not single lowercase)."""
+    if not name or not name.replace("_", "").isalnum():
+        return False
+    letters = [c for c in name if c.isalpha()]
+    return bool(letters) and all(c.isupper() for c in letters)
+
+
+def _range_const_len(call: ast.Call) -> int | None:
+    """Return iteration length for range(...) with int-literal bounds, else None."""
+    if _call_name(call.func) != "range" or call.keywords:
+        return None
+    args = call.args
+    vals: list[int] = []
+    for a in args:
+        if isinstance(a, ast.UnaryOp) and isinstance(a.op, ast.USub) and isinstance(
+            a.operand, ast.Constant
+        ) and isinstance(a.operand.value, int):
+            vals.append(-a.operand.value)
+        elif isinstance(a, ast.Constant) and isinstance(a.value, int):
+            vals.append(a.value)
+        else:
+            return None
+    if len(vals) == 1:
+        start, stop, step = 0, vals[0], 1
+    elif len(vals) == 2:
+        start, stop, step = vals[0], vals[1], 1
+    elif len(vals) == 3:
+        start, stop, step = vals[0], vals[1], vals[2]
+    else:
+        return None
+    if step == 0:
+        return None
+    if step > 0:
+        n = max(0, (stop - start + step - 1) // step)
+    else:
+        n = max(0, (start - stop - step - 1) // (-step))
+    return n
+
+
+def _classify_for_iter(node: ast.AST) -> tuple[str, str]:
+    """Classify for-loop iterable: literal_nonempty|range_const|upper_name|attr_const|other."""
+    text = _unparse(node)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        if len(node.elts) >= 1:
+            return "literal_nonempty", text
+        return "other", text
+    if isinstance(node, ast.Dict):
+        if len(node.keys) >= 1:
+            return "literal_nonempty", text
+        return "other", text
+    if isinstance(node, ast.Call):
+        n = _range_const_len(node)
+        if n is not None and n >= 1:
+            return "range_const", text
+        return "other", text
+    if isinstance(node, ast.Name) and _is_const_name(node.id):
+        return "upper_name", text
+    if isinstance(node, ast.Attribute) and _is_const_name(node.attr):
+        return "attr_const", text
+    return "other", text
 
 
 class _NormLiterals(ast.NodeTransformer):
@@ -255,6 +336,13 @@ def _collect_from_function(
             for child in ast.walk(node):
                 nested_node_ids.add(id(child))
 
+    bare_call_ids: set[int] = set()
+    for node in ast.walk(fn):
+        if id(node) in nested_node_ids:
+            continue
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            bare_call_ids.add(id(node.value))
+
     for node in ast.walk(fn):
         if id(node) in nested_node_ids:
             continue
@@ -299,7 +387,13 @@ def _collect_from_function(
         if isinstance(node, ast.Call):
             cname = _call_name(node.func)
             if cname:
-                calls.append({"name": cname, "lineno": node.lineno})
+                calls.append(
+                    {
+                        "name": cname,
+                        "lineno": node.lineno,
+                        "bare": id(node) in bare_call_ids,
+                    }
+                )
 
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             value_node = node.value if isinstance(node, ast.Assign) else node.value
@@ -319,11 +413,14 @@ def _collect_from_function(
 
         if isinstance(node, (ast.For, ast.AsyncFor)):
             end_l = getattr(node, "end_lineno", None) or node.lineno
+            iter_kind, iter_text = _classify_for_iter(node.iter)
             for_loops.append(
                 {
                     "lineno": node.lineno,
                     "end_lineno": end_l,
                     "only_asserts": _body_only_asserts(node.body),
+                    "iter_kind": iter_kind,
+                    "iter_text": iter_text,
                 }
             )
 
@@ -336,12 +433,18 @@ def _collect_from_function(
                 if not _is_raises_call(cname):
                     continue
                 body = node.body
+                asname = ""
+                if item.optional_vars is not None:
+                    asname = _unparse(item.optional_vars)
+                end_l = getattr(node, "end_lineno", None) or node.lineno
                 raises.append(
                     {
                         "exc": _raise_exc_name(ctx),
                         "has_match": _has_match_kw(ctx),
                         "body_stmt_count": len(body),
                         "lineno": node.lineno,
+                        "end_lineno": end_l,
+                        "asname": asname,
                     }
                 )
 
@@ -401,16 +504,45 @@ def _collect_from_function(
     }
 
 
+def _helper_summary(
+    fn: ast.FunctionDef | ast.AsyncFunctionDef,
+    class_name: str,
+) -> dict[str, Any]:
+    """Lightweight helper record for one-level assert follow from tests."""
+    full = _collect_from_function(fn, class_name)
+    return {
+        "name": full["name"],
+        "qualname": full["qualname"],
+        "has_assert": full["has_assert"] or full["has_raises"],
+    }
+
+
 def _collect_class(cls: ast.ClassDef, outer: str) -> list[dict[str, Any]]:
     class_name = f"{outer}.{cls.name}" if outer else cls.name
     tests: list[dict[str, Any]] = []
     for stmt in cls.body:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if _is_test_func(stmt.name):
+            if _is_test_func(stmt.name) and not _is_fixture_function(stmt):
                 tests.append(_collect_from_function(stmt, class_name))
         elif isinstance(stmt, ast.ClassDef) and _is_test_class(stmt.name):
-            tests.extend(_collect_class(stmt, class_name))
+            if not _class_has_init(stmt):
+                tests.extend(_collect_class(stmt, class_name))
     return tests
+
+
+def _collect_class_helpers(cls: ast.ClassDef, outer: str) -> list[dict[str, Any]]:
+    class_name = f"{outer}.{cls.name}" if outer else cls.name
+    helpers: list[dict[str, Any]] = []
+    for stmt in cls.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if _is_fixture_function(stmt):
+                continue
+            if _is_test_func(stmt.name):
+                continue
+            helpers.append(_helper_summary(stmt, class_name))
+        elif isinstance(stmt, ast.ClassDef):
+            helpers.extend(_collect_class_helpers(stmt, class_name))
+    return helpers
 
 
 def collect_tests(tree: ast.AST) -> list[dict[str, Any]]:
@@ -420,11 +552,29 @@ def collect_tests(tree: ast.AST) -> list[dict[str, Any]]:
     for stmt in tree.body:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # test_* or legacy module-level TestFoo-style function names
-            if _is_test_func(stmt.name) or _is_test_class(stmt.name):
+            if (_is_test_func(stmt.name) or _is_test_class(stmt.name)) and not _is_fixture_function(stmt):
                 tests.append(_collect_from_function(stmt, ""))
         elif isinstance(stmt, ast.ClassDef) and _is_test_class(stmt.name):
-            tests.extend(_collect_class(stmt, ""))
+            if not _class_has_init(stmt):
+                tests.extend(_collect_class(stmt, ""))
     return tests
+
+
+def collect_helpers(tree: ast.AST) -> list[dict[str, Any]]:
+    """Non-test functions (module + nested in classes) for assert-helper follow."""
+    helpers: list[dict[str, Any]] = []
+    if not isinstance(tree, ast.Module):
+        return helpers
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if _is_fixture_function(stmt):
+                continue
+            if _is_test_func(stmt.name) or _is_test_class(stmt.name):
+                continue
+            helpers.append(_helper_summary(stmt, ""))
+        elif isinstance(stmt, ast.ClassDef):
+            helpers.extend(_collect_class_helpers(stmt, ""))
+    return helpers
 
 
 def collect_imports(tree: ast.AST) -> list[dict[str, Any]]:
@@ -456,14 +606,22 @@ def collect_imports(tree: ast.AST) -> list[dict[str, Any]]:
     return imports
 
 
-def model_for_source(src: str, filename: str = "<unknown>") -> dict[str, Any]:
-    tree = ast.parse(src, filename=filename)
-    return {"tests": collect_tests(tree), "imports": collect_imports(tree)}
+def model_for_source(src: str | bytes, filename: str = "<unknown>") -> dict[str, Any]:
+    if isinstance(src, str):
+        data = src.encode("utf-8", errors="surrogatepass")
+    else:
+        data = src
+    tree = ast.parse(data, filename=filename)
+    return {
+        "tests": collect_tests(tree),
+        "imports": collect_imports(tree),
+        "helpers": collect_helpers(tree),
+    }
 
 
 def _dump_single(path: str) -> int:
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, "rb") as f:
             src = f.read()
         model = model_for_source(src, filename=path)
     except Exception as exc:  # noqa: BLE001
@@ -485,7 +643,11 @@ def _dump_batch() -> int:
             if not isinstance(req, dict):
                 raise ValueError("batch request must be a JSON object")
             path = str(req.get("path", ""))
-            source = str(req.get("source", ""))
+            source_b64 = req.get("source_b64")
+            if source_b64 is not None and source_b64 != "":
+                source = base64.standard_b64decode(str(source_b64))
+            else:
+                source = str(req.get("source", "")).encode("utf-8", errors="surrogatepass")
             funcs = req.get("python_functions")
             classes = req.get("python_classes")
             # Always reconfigure when keys are present (incl. []) so prior globs do not stick.

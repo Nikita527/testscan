@@ -3,6 +3,7 @@ package scan
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -90,12 +91,49 @@ func RelativizeFindings(findings []Finding, root string) {
 	}
 }
 
-// AssignFingerprints fills Fingerprint using file contents keyed by original path.
+// AssignFingerprints fills Fingerprint and Snippet using file contents keyed by original path.
 func AssignFingerprints(findings []Finding, byPath map[string][]byte, pathRoot string) {
 	for i := range findings {
 		content := contentFor(findings[i].File, byPath)
 		findings[i].Fingerprint = ComputeFingerprint(findings[i], content, pathRoot)
+		if findings[i].Snippet == "" {
+			findings[i].Snippet = ContextSnippet(content, findings[i].Line, 5)
+		}
 	}
+}
+
+// ContextSnippet returns up to radius lines before and after 1-based line.
+// Line numbers are prefixed (e.g. "  10| code") for HTML/report readability.
+func ContextSnippet(content []byte, line, radius int) string {
+	if len(content) == 0 || line < 1 || radius < 0 {
+		return ""
+	}
+	lines := splitLines(string(content))
+	if line > len(lines) {
+		return ""
+	}
+	start := line - 1 - radius
+	if start < 0 {
+		start = 0
+	}
+	end := line + radius
+	if end > len(lines) {
+		end = len(lines)
+	}
+	var b strings.Builder
+	width := len(strconv.Itoa(end))
+	for i := start; i < end; i++ {
+		if i > start {
+			b.WriteByte('\n')
+		}
+		num := i + 1
+		marker := " "
+		if num == line {
+			marker = ">"
+		}
+		fmt.Fprintf(&b, "%s%*d| %s", marker, width, num, lines[i])
+	}
+	return b.String()
 }
 
 func contentFor(file string, byPath map[string][]byte) []byte {

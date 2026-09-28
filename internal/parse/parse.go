@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -61,9 +63,18 @@ func discoveryPatterns() (funcs, classes []string) {
 // IsEmpty, HasAssert, HasRaises.
 // Collection walks classes and module-level functions (not a bare ast.walk by name).
 // Imports lists every Import / ImportFrom node in the file.
+// Helpers are non-test functions (module/class) used for one-level assert follow.
 type Model struct {
 	Tests   []TestFunc `json:"tests"`
 	Imports []Import   `json:"imports"`
+	Helpers []Helper   `json:"helpers"`
+}
+
+// Helper is a non-test function that may contain asserts (for no-assert follow).
+type Helper struct {
+	Name      string `json:"name"`
+	QualName  string `json:"qualname"`
+	HasAssert bool   `json:"has_assert"`
 }
 
 // Import is an Import or ImportFrom AST node (file-level or nested).
@@ -110,6 +121,8 @@ type Assert struct {
 type Call struct {
 	Name   string `json:"name"`
 	Lineno int    `json:"lineno"`
+	// Bare is true when the call is a statement expression (result unused).
+	Bare bool `json:"bare"`
 }
 
 type Raise struct {
@@ -117,6 +130,8 @@ type Raise struct {
 	HasMatch      bool   `json:"has_match"`
 	BodyStmtCount int    `json:"body_stmt_count"`
 	Lineno        int    `json:"lineno"`
+	EndLineno     int    `json:"end_lineno"`
+	AsName        string `json:"asname"` // optional `with ... as <name>`
 }
 
 type TryExcept struct {
@@ -134,10 +149,14 @@ type Assignment struct {
 }
 
 // ForLoop is a for/async for; OnlyAsserts is true when the body is asserts only.
+// IterKind classifies the iterable: literal_nonempty | range_const | upper_name |
+// attr_const | other (emptyable / computed).
 type ForLoop struct {
-	Lineno      int  `json:"lineno"`
-	EndLineno   int  `json:"end_lineno"`
-	OnlyAsserts bool `json:"only_asserts"`
+	Lineno      int    `json:"lineno"`
+	EndLineno   int    `json:"end_lineno"`
+	OnlyAsserts bool   `json:"only_asserts"`
+	IterKind    string `json:"iter_kind"`
+	IterText    string `json:"iter_text"`
 }
 
 // Parser lets tests replace the AST helper (mock JSON without uv).
@@ -171,6 +190,23 @@ func File(ctx context.Context, path string, content []byte) (Model, error) {
 
 type helperParser struct{}
 
+func pythonHelperEnv() []string {
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, e := range os.Environ() {
+		key := e
+		if i := strings.IndexByte(e, '='); i >= 0 {
+			key = e[:i]
+		}
+		switch key {
+		case "PYTHONIOENCODING", "PYTHONUTF8", "PYTHONLEGACYWINDOWSSTDIO":
+			continue
+		}
+		env = append(env, e)
+	}
+	env = append(env, "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
+	return env
+}
+
 func (helperParser) Parse(ctx context.Context, path string, content []byte) (Model, error) {
 	exe, prefix, err := findPython()
 	if err != nil {
@@ -198,6 +234,7 @@ func (helperParser) Parse(ctx context.Context, path string, content []byte) (Mod
 
 	args := append(append([]string{}, prefix...), script, tmpPath)
 	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd.Env = pythonHelperEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -223,6 +260,18 @@ func (helperParser) Parse(ctx context.Context, path string, content []byte) (Mod
 func normalizeModel(model *Model) {
 	if model.Tests == nil {
 		model.Tests = []TestFunc{}
+	}
+	if model.Helpers == nil {
+		model.Helpers = []Helper{}
+	}
+	if model.Imports == nil {
+		model.Imports = []Import{}
+	}
+	for i := range model.Helpers {
+		h := &model.Helpers[i]
+		if h.QualName == "" {
+			h.QualName = h.Name
+		}
 	}
 	for i := range model.Tests {
 		t := &model.Tests[i]
@@ -295,8 +344,9 @@ func (s StaticParser) Parse(context.Context, string, []byte) (Model, error) {
 
 // batchReq / batchResp are JSONL framing for the long-lived helper.
 type batchReq struct {
-	Path   string `json:"path"`
-	Source string `json:"source"`
+	Path       string `json:"path"`
+	Source     string `json:"source,omitempty"`
+	SourceB64  string `json:"source_b64,omitempty"`
 	// Always sent (even empty) so the helper can reset to pytest defaults.
 	PythonFunctions []string `json:"python_functions"`
 	PythonClasses   []string `json:"python_classes"`
@@ -331,6 +381,7 @@ func StartBatch(ctx context.Context) (*Batch, error) {
 	}
 	args := append(append([]string{}, prefix...), script)
 	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd.Env = pythonHelperEnv()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
@@ -369,7 +420,7 @@ func (b *Batch) Parse(ctx context.Context, path string, content []byte) (Model, 
 	funcs, classes := discoveryPatterns()
 	req, err := json.Marshal(batchReq{
 		Path:            path,
-		Source:          string(content),
+		SourceB64:       base64.StdEncoding.EncodeToString(content),
 		PythonFunctions: funcs,
 		PythonClasses:   classes,
 	})

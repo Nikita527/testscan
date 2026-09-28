@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+
+- Mutation orchestration (`testscan --mutate` → mutmut/cosmic-ray on `--diff`, survivors as findings) planned for next release — not in this release.
+
+## [0.3.0] - 2026-09-28
+
+Signal/noise + actionable UX for daily CI (`--diff` / `--baseline` / `--focus`). Demotes noisy heuristics to notes; Health Score is precision-weighted.
+
+### Added
+
+- **Precision-weighted Health Score**: error/warning findings are weighted by per-rule precision (precision < `MinPrecisionForGrade` = 0.15 → weight 0 for grade; mid-precision rules count proportionally); notes and `parse-error` tool errors are UI-only.
+- `--focus`: keep only error/warning findings with rule precision ≥ `MinPrecisionForGrade` (0.15); drops notes, `parse-error`, zero-precision rules, and demoted heuristics listed in `neverFocusRules` (even if config bumps severity). Score is computed on the focused set. Compatible with `--baseline` / `--diff` (order: scan → baseline → focus → score → emit).
+- HTML report: TOC/sections sorted by **precision desc** (then count, then id) with precision badges; note/tool-error filters off by default; hero caption clarifies Grade ≠ “tests are excellent”.
+- HTML report: separate **tool error** chip/filter (not mixed into note), ±5-line code snippets, near-duplicate twin links (`qual:line`), collapsed repeated messages within a rule.
+- `--diff <base-ref>`: scan only test files changed/added since the git base (PR-friendly for AI-generated tests). Accepts `main` or `origin/main...HEAD`.
+- `--format codequality`: GitLab Code Quality / Code Climate JSON report.
+- Synthetic corpus precision gate (`TestCorpus`): each rule’s hit/clean fixtures must stay ≥95% precision in CI.
+- `--open` without `-o` writes to `.testscan/reports/report_<timestamp>.html` and ensures a local `.gitignore` (reports stay untracked).
+- AI-oriented rules: `name-body-mismatch`, `self-patched-sut`, `expected-recomputed`, `commented-assert`, `overbroad-equality`.
+
+### Changed
+
+- Default severity demoted to **note** (noise / zero-precision UI honesty): `name-body-mismatch`, `no-assert`, `mock-only-assert`, `mock-tautology`, `overbroad-equality`.
+- **Migration for `--fail-on warning`:** demoted rules (and wall-clock `sleep-in-test` notes) no longer fail CI; use baseline / note triage / config severity if you still want those gates.
+- `no-assert`: skips no-raise names / `validate_*`-style bodies; follows same-module `_assert_*` / assert helpers.
+- `mock-tautology`: flags only asserts on the mock itself or self-patched targets, not SUT calls that echo a dependency `return_value`.
+- `mock-only-assert`: skips procedural SUT, constructor patches, and boundary paths (`adapters/`, `clients/`, …).
+- `broad-raises`: message asks for a concrete exception class; skips specific exceptions with `exc_info.value.<attr>` checks.
+- `assert-in-emptyable-loop`: flags only emptyable (`other`) iterables; skips nonempty literals, `range(N≥1)`, `UPPER_CASE` / enum consts, and pre-loop `assert iter` / `len > 0`.
+- `weak-assert`: does not flag `len(x) == N` (N≠0) or `is_valid` in `accepts_*`/`passes_*`/`valid*`; adds shallow `rejects_*` / lone `is not None` / GET `status_code == 200` without body checks.
+- `only-happy-path`: groups by SUT call (not only file); expanded negative signals (`status.HTTP_4xx_*`, names, `side_effect`, `not in` / `!=` / empty containers, `caplog` WARNING/ERROR); shorter messages; skips pure mappers without branches.
+- `near-duplicate-test`: skips opposite polarity / different SUT / different enum literals; clusters of 3+ emit one finding with a `@pytest.mark.parametrize` sketch; twin qualname + line on pairs.
+- `test-imports-implementation-private`: one finding per import statement; skips `_UPPER_CASE` constants; message frames the module as a submodule candidate.
+- `assert-true`: also flags constant truthy asserts (`assert 1`, `assert "…"`).
+- `sleep-in-test`: `time.sleep` / `asyncio.sleep` stay **warning**; `datetime.now` / `date.today` without freeze are **note**.
+- `expected-recomputed`: does not flag determinism checks `f(x) == f(x)` (same call both sides).
+- Health Score: removed parse penalty from grade; `parse_skipped` remains in JSON/HTML for tool visibility only.
+- Daily workflow docs: prefer `--diff` + `--baseline` + `--focus`; full scan without `--focus` for heuristic triage.
+
+### Fixed
+
+- AST helper encoding: parse via UTF-8 bytes / `PYTHONUTF8=1` so Cyrillic sources no longer fail under `PYTHONIOENCODING=cp1251`.
+- Fixtures named `test_*` with `@pytest.fixture` / `@fixture` are not collected as tests; classes with `__init__` skipped (pytest-aligned).
+- HTML finding search is case-insensitive on both needle and haystack text.
+
 ## [0.2.0] - 2026-09-25
 
 Accuracy roadmap + Health Score. CI that parsed `--format json` as a bare findings array must switch to the `findings` key (see **Changed**).
@@ -16,7 +61,7 @@ Accuracy roadmap + Health Score. CI that parsed `--format json` as a bare findin
 - **Breaking:** `--format json` is now an object `{"summary":{…},"findings":[…]}` instead of a bare findings array. Baselines and CI parsers should read `findings` (or pass the file to `--baseline`, which still accepts both shapes). There is no `json-raw` format.
 - Finding identity for baselines uses `fingerprint` (`rule` + relative file + `qual_name` + normalized snippet hash). Legacy baselines without fingerprints still match on `file+line+rule` once, with a one-time stderr warning; new baselines always write fingerprints.
 - Paths in findings / HTML / SARIF are slash-normalized and relative to the project root or cwd.
-- HTML output no longer auto-writes and opens on Windows for `--format html`; use `-o`/`--output` and optional `--open`.
+- HTML output no longer auto-writes and opens on Windows for `--format html`; use `-o`/`--output` and optional `--open` (default path: `.testscan/reports/`).
 - AST-backed rules no longer silently fall back to text heuristics when the model is unavailable (unless `Options.AllowHeuristicFallback`). A parse failure yields a single `parse-error` / `ast-unavailable` finding (`note`) per file.
 - Several default rules are more precise (per-test / qualname / AST asserts): `duplicate-test-name`, `assert-equals-same`, `todo-test`, `only-happy-path` (default severity `note`), `no-assert`, `mock-only-assert`, `overmocked-io`, `empty-test`, `test-imports-implementation-private`, `assert-true`.
 
@@ -44,6 +89,7 @@ Accuracy roadmap + Health Score. CI that parsed `--format json` as a bare findin
 
 Initial tagged release: Go CLI + PyPI launcher, default AI-test smell rules, text/JSON/SARIF/HTML output, baseline, config, and pre-commit docs.
 
-[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Nikita527/testscan/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Nikita527/testscan/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Nikita527/testscan/releases/tag/v0.1.0

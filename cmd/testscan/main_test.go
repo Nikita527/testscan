@@ -47,6 +47,8 @@ func TestParseArgs(t *testing.T) {
 		wantDisable  []string
 		wantBaseline string
 		wantCoverage string
+		wantDiff     string
+		wantFocus    bool
 		wantWorkers  int
 		wantWorkersS bool
 		wantFailOnS  bool
@@ -114,6 +116,30 @@ func TestParseArgs(t *testing.T) {
 			wantCoverage: "coverage.json",
 		},
 		{
+			name:       "diff",
+			argv:       []string{"path", "--diff", "origin/main"},
+			wantRoots:  []string{"path"},
+			wantFormat: "text",
+			wantFailOn: "error",
+			wantDiff:   "origin/main",
+		},
+		{
+			name:       "focus",
+			argv:       []string{"path", "--focus", "--diff", "origin/main"},
+			wantRoots:  []string{"path"},
+			wantFormat: "text",
+			wantFailOn: "error",
+			wantDiff:   "origin/main",
+			wantFocus:  true,
+		},
+		{
+			name:       "format_codequality",
+			argv:       []string{"path", "--format", "codequality"},
+			wantRoots:  []string{"path"},
+			wantFormat: "codequality",
+			wantFailOn: "error",
+		},
+		{
 			name:         "workers",
 			argv:         []string{"path", "--workers", "4"},
 			wantRoots:    []string{"path"},
@@ -171,6 +197,12 @@ func TestParseArgs(t *testing.T) {
 			}
 			if got.coverage != tc.wantCoverage {
 				t.Fatalf("coverage=%q, want %q", got.coverage, tc.wantCoverage)
+			}
+			if got.diff != tc.wantDiff {
+				t.Fatalf("diff=%q, want %q", got.diff, tc.wantDiff)
+			}
+			if got.focus != tc.wantFocus {
+				t.Fatalf("focus=%v, want %v", got.focus, tc.wantFocus)
 			}
 			if got.workers != tc.wantWorkers || got.workersSet != tc.wantWorkersS {
 				t.Fatalf("workers=%d set=%v, want %d set=%v", got.workers, got.workersSet, tc.wantWorkers, tc.wantWorkersS)

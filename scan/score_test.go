@@ -26,50 +26,124 @@ func TestCalculateScore_GradeThresholds(t *testing.T) {
 		{100, "A"}, {90, "A"}, {89, "B"}, {75, "B"}, {74, "C"},
 		{60, "C"}, {59, "D"}, {45, "D"}, {44, "F"}, {0, "F"},
 	} {
-		// Grade is produced by CalculateScore; verify thresholds via FormatScoreLine.
 		line := scan.FormatScoreLine(scan.Score{Value: tc.v, Grade: tc.g})
 		want := "Health Score: " + strconv.Itoa(tc.v) + " (" + tc.g + ")"
 		if line != want {
 			t.Errorf("got %q want %q", line, want)
 		}
 	}
-	// Spot-check that CalculateScore assigns matching grades at boundaries.
 	clean := scan.CalculateScore(nil, 1)
 	if clean.Grade != "A" {
 		t.Fatalf("clean grade %s", clean.Grade)
 	}
 }
 
-func TestCalculateScore_ErrorsVsNotes(t *testing.T) {
+func TestCalculateScore_NotesDoNotAffectGrade(t *testing.T) {
 	files := 100
-	errorsOnly := scan.CalculateScore([]scan.Finding{
-		{Severity: "error", Rule: "empty-test"},
-		{Severity: "error", Rule: "empty-test"},
-		{Severity: "error", Rule: "empty-test"},
-		{Severity: "error", Rule: "empty-test"},
-		{Severity: "error", Rule: "empty-test"},
-	}, files)
 	notesOnly := scan.CalculateScore([]scan.Finding{
 		{Severity: "note", Rule: "only-happy-path"},
 		{Severity: "note", Rule: "only-happy-path"},
-		{Severity: "note", Rule: "only-happy-path"},
-		{Severity: "note", Rule: "only-happy-path"},
-		{Severity: "note", Rule: "only-happy-path"},
+		{Severity: "note", Rule: "weak-assert"},
+		{Severity: "note", Rule: "near-duplicate-test"},
+		{Severity: "note", Rule: "test-imports-implementation-private"},
 	}, files)
-	if notesOnly.Value <= errorsOnly.Value {
-		t.Fatalf("notes should score higher than equal-count errors: notes=%d errors=%d",
-			notesOnly.Value, errorsOnly.Value)
+	if notesOnly.Value != 100 || notesOnly.Grade != "A" {
+		t.Fatalf("notes must not lower score: got %d (%s)", notesOnly.Value, notesOnly.Grade)
+	}
+	if notesOnly.Notes != 5 {
+		t.Fatalf("Notes=%d, want 5", notesOnly.Notes)
 	}
 }
 
-func TestCalculateScore_NotesAloneStayAroundC(t *testing.T) {
-	findings := make([]scan.Finding, 50)
-	for i := range findings {
-		findings[i] = scan.Finding{Severity: "note", Rule: "only-happy-path"}
+func TestCalculateScore_LowPrecisionErrorsIgnored(t *testing.T) {
+	low := scan.CalculateScore([]scan.Finding{
+		{Severity: "error", Rule: "no-assert"},
+		{Severity: "error", Rule: "no-assert"},
+		{Severity: "warning", Rule: "mock-only-assert"},
+	}, 100)
+	if low.Value != 100 {
+		t.Fatalf("low-precision findings must not lower score, got %d", low.Value)
 	}
-	s := scan.CalculateScore(findings, 100)
-	if s.Value < 60 {
-		t.Fatalf("note-heavy suite score %d (%s) dropped below C; k may be too high", s.Value, s.Grade)
+	if low.Errors != 2 || low.Warnings != 1 {
+		t.Fatalf("counts still tracked: %+v", low)
+	}
+}
+
+func TestCalculateScore_HighPrecisionErrorsCount(t *testing.T) {
+	findings := []scan.Finding{
+		{Severity: "error", Rule: "empty-test"},
+		{Severity: "error", Rule: "empty-test"},
+	}
+	s := scan.CalculateScore(findings, 9)
+	weighted := 2.0 // empty-test precision defaults to 1.0
+	denom := math.Log10(10)
+	if denom < 1 {
+		denom = 1
+	}
+	wantPenalty := int(math.Round(weighted / denom * scan.ScoreDensityK))
+	if wantPenalty > 80 {
+		wantPenalty = 80
+	}
+	want := 100 - wantPenalty
+	if s.Value != want {
+		t.Fatalf("got %d, want %d (penalty %d)", s.Value, want, wantPenalty)
+	}
+}
+
+func TestCalculateScore_BroadRaisesPrecision(t *testing.T) {
+	// broad-raises precision 1.0 → full warning weight
+	s := scan.CalculateScore([]scan.Finding{
+		{Severity: "warning", Rule: "broad-raises"},
+	}, 9)
+	weighted := 0.5
+	denom := math.Log10(10)
+	wantPenalty := int(math.Round(weighted / denom * scan.ScoreDensityK))
+	want := 100 - wantPenalty
+	if s.Value != want {
+		t.Fatalf("got %d, want %d", s.Value, want)
+	}
+}
+
+func TestPrecisionWeight(t *testing.T) {
+	if w := scan.PrecisionWeight("no-assert"); w != 0 {
+		t.Fatalf("no-assert weight=%v, want 0", w)
+	}
+	if w := scan.PrecisionWeight("broad-raises"); w != 1 {
+		t.Fatalf("broad-raises weight=%v, want 1", w)
+	}
+	if w := scan.PrecisionWeight("only-happy-path"); w != 0.5 {
+		t.Fatalf("only-happy-path weight=%v, want 0.5", w)
+	}
+	if w := scan.PrecisionWeight("name-body-mismatch"); w != 0.35 {
+		t.Fatalf("name-body-mismatch mid-precision weight=%v, want 0.35", w)
+	}
+	if w := scan.PrecisionWeight("empty-test"); w != 1 {
+		t.Fatalf("unknown rule default weight=%v, want 1", w)
+	}
+}
+
+func TestCalculateScore_MidPrecisionWarningsCount(t *testing.T) {
+	// name-body-mismatch precision 0.35 ≥ floor → volume must lower score (not fake-A).
+	findings := make([]scan.Finding, 120)
+	for i := range findings {
+		findings[i] = scan.Finding{Severity: "warning", Rule: "name-body-mismatch"}
+	}
+	s := scan.CalculateScore(findings, 360)
+	if s.Value >= 90 || s.Grade == "A" {
+		t.Fatalf("120 mid-precision warnings must not stay grade A, got %d (%s)", s.Value, s.Grade)
+	}
+	if s.WarningsInGrade != 120 || s.WarningsIgnored != 0 {
+		t.Fatalf("in_grade=%d ignored=%d", s.WarningsInGrade, s.WarningsIgnored)
+	}
+}
+
+func TestCalculateScore_ZeroPrecisionWarningsIgnored(t *testing.T) {
+	s := scan.CalculateScore([]scan.Finding{
+		{Severity: "warning", Rule: "mock-only-assert"},
+		{Severity: "warning", Rule: "no-assert"},
+	}, 100)
+	if s.Value != 100 || s.WarningsIgnored != 2 || s.WarningsInGrade != 0 {
+		t.Fatalf("got %+v", s)
 	}
 }
 
@@ -82,42 +156,19 @@ func TestCalculateScore_ParsePenalty(t *testing.T) {
 		{Severity: "note", Rule: "parse-error"},
 	}
 	withParse := scan.CalculateScore(findings, 10)
-	noParseRule := make([]scan.Finding, len(findings))
-	for i, f := range findings {
-		noParseRule[i] = f
-		noParseRule[i].Rule = "other-note"
-	}
-	without := scan.CalculateScore(noParseRule, 10)
 	if withParse.ParseSkipped != 5 {
 		t.Fatalf("ParseSkipped=%d, want 5", withParse.ParseSkipped)
 	}
 	if withParse.Notes != 0 {
 		t.Fatalf("parse-error must not count as notes, Notes=%d", withParse.Notes)
 	}
-	if withParse.Value >= without.Value {
-		t.Fatalf("parse-error should add parse_penalty: with=%d without=%d",
-			withParse.Value, without.Value)
+	clean := scan.CalculateScore(nil, 10)
+	if withParse.Value != clean.Value {
+		t.Fatalf("parse-error must not lower score: with=%d clean=%d",
+			withParse.Value, clean.Value)
 	}
-}
-
-func TestCalculateScore_FormulaSpotCheck(t *testing.T) {
-	findings := []scan.Finding{
-		{Severity: "error", Rule: "empty-test"},
-		{Severity: "error", Rule: "empty-test"},
-	}
-	s := scan.CalculateScore(findings, 9)
-	weighted := 2.0
-	denom := math.Log10(10)
-	if denom < 1 {
-		denom = 1
-	}
-	wantPenalty := int(math.Round(weighted / denom * scan.ScoreDensityK))
-	if wantPenalty > 80 {
-		wantPenalty = 80
-	}
-	want := 100 - wantPenalty
-	if s.Value != want {
-		t.Fatalf("got %d, want %d (penalty %d)", s.Value, want, wantPenalty)
+	if withParse.Value != 100 {
+		t.Fatalf("want score 100 for 10 files with only parse-errors, got %d", withParse.Value)
 	}
 }
 
@@ -142,24 +193,23 @@ func TestCalculateScore_PenaltyCapped(t *testing.T) {
 	}
 }
 
-// mp-be-like volume after rule accuracy fixes: ~14 errors, tens of warnings,
-// many notes (private-import / weak-assert / near-duplicate / only-happy-path).
-// ScoreDensityK should land this in B–C, not F.
-func TestCalculateScore_LargeRepoAfterNoiseFixes(t *testing.T) {
+// High-precision error/warning volume on a large repo should land in B–C,
+// while low-precision / note noise is ignored by the grade.
+func TestCalculateScore_LargeRepoHighPrecision(t *testing.T) {
 	const files = 360
-	findings := make([]scan.Finding, 0, 14+25+100)
+	findings := make([]scan.Finding, 0, 14+10+100)
 	for i := 0; i < 14; i++ {
-		findings = append(findings, scan.Finding{Severity: "error", Rule: "no-assert"})
+		findings = append(findings, scan.Finding{Severity: "error", Rule: "empty-test"})
 	}
-	for i := 0; i < 25; i++ {
-		findings = append(findings, scan.Finding{Severity: "warning", Rule: "mock-only-assert"})
+	for i := 0; i < 10; i++ {
+		findings = append(findings, scan.Finding{Severity: "warning", Rule: "broad-raises"})
 	}
 	for i := 0; i < 100; i++ {
 		findings = append(findings, scan.Finding{Severity: "note", Rule: "only-happy-path"})
 	}
 	s := scan.CalculateScore(findings, files)
 	if s.Grade != "B" && s.Grade != "C" {
-		t.Fatalf("mp-be-like volume scored %d (%s), want B or C (k=%v)",
+		t.Fatalf("large high-precision volume scored %d (%s), want B or C (k=%v)",
 			s.Value, s.Grade, scan.ScoreDensityK)
 	}
 	if s.Value < 60 {

@@ -63,6 +63,8 @@ repos:
 
 ```bash
 uvx testscan@latest /c/Dev/mp-be/tests --fail-on never
+# PR / AI-тесты: только файлы с merge-base
+uvx testscan@latest /c/Dev/mp-be/tests --diff origin/main --fail-on warning
 # SARIF для GitHub Code Scanning:
 uvx testscan@latest /c/Dev/mp-be/tests --format sarif --fail-on never > testscan.sarif
 ```
@@ -74,3 +76,11 @@ testscan tests/ --format sarif --fail-on never > testscan.sarif
 ```
 
 Загрузите `testscan.sarif` через [github/codeql-action/upload-sarif](https://github.com/github/codeql-action) (или импортер вашего forge). Код выхода по-прежнему зависит от `--fail-on`; для шага upload обычно `--fail-on never`.
+
+## GitLab Code Quality
+
+```bash
+testscan tests/ --diff origin/main --format codequality --fail-on never -o gl-code-quality-report.json
+```
+
+Укажите путь артефакта Code Quality, который ожидает job в GitLab CI (часто `gl-code-quality-report.json`).

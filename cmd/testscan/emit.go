@@ -6,18 +6,27 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/Nikita527/testscan/scan"
 )
 
-const defaultHTMLReport = "testscan.html"
+const gitignoreBody = "*\n!.gitignore\n"
+
+func reportDirPath() string {
+	return filepath.Join(".testscan", "reports")
+}
+
+// reportNow is the clock for timestamped report names; tests replace it.
+var reportNow = time.Now
 
 // openReport opens an HTML path in the default browser. Tests replace this
 // to avoid "File Not Found" dialogs after t.TempDir cleanup.
 var openReport = openHTMLReport
 
 // emitFindings writes the report to stdout, or to -o/--output when set.
-// --open opens the HTML file in a browser (requires a file path: -o or default).
+// --open opens the HTML file in a browser (requires a file path: -o or
+// .testscan/reports/report_<timestamp>.html).
 func emitFindings(findings []scan.Finding, fileCount int, format, output string, open bool) error {
 	if open && format != "html" {
 		return fmt.Errorf("--open requires --format html")
@@ -34,17 +43,47 @@ func emitFindings(findings []scan.Finding, fileCount int, format, output string,
 	}
 
 	if open {
-		// no -o: write default HTML path then open
-		if err := writeFindingsToFile(defaultHTMLReport, findings, fileCount, "html"); err != nil {
+		path, err := prepareDefaultHTMLReport()
+		if err != nil {
 			return err
 		}
-		return openWrittenReport(defaultHTMLReport)
+		if err := writeFindingsToFile(path, findings, fileCount, "html"); err != nil {
+			return err
+		}
+		return openWrittenReport(path)
 	}
 
 	return writeFindings(os.Stdout, findings, fileCount, format)
 }
 
+// prepareDefaultHTMLReport ensures .testscan/reports/ (+ .gitignore) and
+// returns a timestamped report path under that directory.
+func prepareDefaultHTMLReport() (string, error) {
+	dir := reportDirPath()
+	if err := ensureReportDir(dir); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("report_%s.html", reportNow().Format("20060102_150405.000"))
+	return filepath.Join(dir, name), nil
+}
+
+func ensureReportDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	gi := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(gi); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(gi, []byte(gitignoreBody), 0o644)
+}
+
 func writeFindingsToFile(path string, findings []scan.Finding, fileCount int, format string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err

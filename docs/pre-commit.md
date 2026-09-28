@@ -63,6 +63,8 @@ Ad-hoc scan of the suite (outside pre-commit):
 
 ```bash
 uvx testscan@latest /c/Dev/mp-be/tests --fail-on never
+# PR / AI tests: only files changed since the merge base
+uvx testscan@latest /c/Dev/mp-be/tests --diff origin/main --fail-on warning
 # SARIF for GitHub Code Scanning:
 uvx testscan@latest /c/Dev/mp-be/tests --format sarif --fail-on never > testscan.sarif
 ```
@@ -74,3 +76,11 @@ testscan tests/ --format sarif --fail-on never > testscan.sarif
 ```
 
 Upload `testscan.sarif` with [github/codeql-action/upload-sarif](https://github.com/github/codeql-action) (or your forge’s SARIF importer). Exit code still follows `--fail-on`; use `--fail-on never` when the upload step should always run.
+
+## GitLab Code Quality
+
+```bash
+testscan tests/ --diff origin/main --format codequality --fail-on never -o gl-code-quality-report.json
+```
+
+Use the Code Quality report artifact path that your GitLab CI job expects (often `gl-code-quality-report.json`).

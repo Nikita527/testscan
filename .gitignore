@@ -44,5 +44,5 @@ __pycache__/
 *.whl
 .uv.lock
 
-# HTML report
-testscan.html
+# Local HTML reports (also gitignored via .testscan/reports/.gitignore)
+.testscan/

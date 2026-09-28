@@ -90,3 +90,24 @@ func TestWalk_Gitignore(t *testing.T) {
 		t.Fatalf("got %d files, want 1", len(files))
 	}
 }
+
+func TestWalk_SkipsClaudeWorktrees(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, ".claude", "worktrees", "x", "tests")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "test_dup.py"), []byte("def test_a():\n    assert 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "test_keep.py"), []byte("def test_b():\n    assert 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := scan.Walk(context.Background(), []string{dir}, scan.WalkOptions{Root: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(files[0].Path) != "test_keep.py" {
+		t.Fatalf("got %+v, want only test_keep.py", files)
+	}
+}

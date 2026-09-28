@@ -42,6 +42,9 @@ func isAssertHelperCall(name string, patterns []string) bool {
 			}
 		}
 	}
+	if strings.HasPrefix(leaf, "_assert_") {
+		return true
+	}
 	if strings.HasPrefix(leaf, "assert") && leaf != "assert" {
 		return true
 	}
@@ -72,12 +75,57 @@ func matchSimpleGlob(pattern, name string) bool {
 	return pattern == name
 }
 
-func testHasAssertOrHelper(t parse.TestFunc, helpers []string) bool {
+func helperHasAssert(callName string, model parse.Model) bool {
+	leaf := leafName(callName)
+	for _, h := range model.Helpers {
+		if !h.HasAssert {
+			continue
+		}
+		if h.Name == leaf || h.QualName == callName || leafName(h.QualName) == leaf {
+			return true
+		}
+	}
+	return false
+}
+
+func hasStrictHTTPMock(t parse.TestFunc) bool {
+	for _, f := range t.Fixtures {
+		switch f {
+		case "responses", "requests_mock", "httpx_mock", "respx_mock":
+			return true
+		}
+	}
+	for _, c := range t.Calls {
+		n := strings.ToLower(c.Name)
+		if strings.Contains(n, "assert_all_requests_are_fired") {
+			return true
+		}
+		if strings.HasPrefix(leafName(c.Name), "assert_") &&
+			(strings.Contains(n, "responses") || strings.Contains(n, "requests_mock")) {
+			return true
+		}
+	}
+	for _, d := range t.Decorators {
+		dl := strings.ToLower(d)
+		if strings.Contains(dl, "assert_all_requests_are_fired") {
+			return true
+		}
+	}
+	return false
+}
+
+func testHasAssertOrHelper(t parse.TestFunc, helpers []string, model parse.Model) bool {
 	if t.HasAssert || t.HasRaises {
+		return true
+	}
+	if hasStrictHTTPMock(t) {
 		return true
 	}
 	for _, c := range t.Calls {
 		if isAssertHelperCall(c.Name, helpers) {
+			return true
+		}
+		if helperHasAssert(c.Name, model) {
 			return true
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Nikita527/testscan/scan"
 )
@@ -39,6 +40,57 @@ func TestEmitFindings_OutputAndOpen(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("want output file: %v", err)
+	}
+}
+
+func TestEmitFindings_OpenDefaultWritesToTestscanDir(t *testing.T) {
+	stubOpenReport(t)
+	prevNow := reportNow
+	reportNow = func() time.Time {
+		return time.Date(2026, 9, 21, 10, 14, 27, 0, time.UTC)
+	}
+	t.Cleanup(func() { reportNow = prevNow })
+
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	if err := emitFindings(nil, 0, "html", "", true); err != nil {
+		t.Fatal(err)
+	}
+
+	wantReport := filepath.Join(".testscan", "reports", "report_20260921_101427.000.html")
+	if _, err := os.Stat(wantReport); err != nil {
+		t.Fatalf("want report %s: %v", wantReport, err)
+	}
+	gi := filepath.Join(".testscan", "reports", ".gitignore")
+	data, err := os.ReadFile(gi)
+	if err != nil {
+		t.Fatalf("want .gitignore: %v", err)
+	}
+	if string(data) != gitignoreBody {
+		t.Fatalf("gitignore=%q, want %q", data, gitignoreBody)
+	}
+
+	// second run must not overwrite existing .gitignore
+	if err := os.WriteFile(gi, []byte("# keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := emitFindings(nil, 0, "html", "", true); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(gi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "# keep\n" {
+		t.Fatalf("gitignore overwritten: %q", data)
 	}
 }
 

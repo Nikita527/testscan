@@ -1,7 +1,6 @@
 package rules_test
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -17,7 +16,7 @@ func TestOnlyHappyPath_CoverageMode(t *testing.T) {
 	}
 	cov := filepath.Join(root, "coverage_hit.json")
 
-	res, err := scan.Run(context.Background(), []string{filepath.Join(root, "tests")}, scan.Options{
+	res, err := testRunOpts(t, []string{filepath.Join(root, "tests")}, scan.Options{
 		Rules: []scan.Rule{rules.NewOnlyHappyPathOpts(rules.OnlyHappyPathOpts{
 			Mode:         "coverage",
 			CoveragePath: cov,
@@ -61,7 +60,7 @@ func TestOnlyHappyPath_CoverageModeClean(t *testing.T) {
 	}
 	cov := filepath.Join(root, "coverage_clean.json")
 
-	res, err := scan.Run(context.Background(), []string{filepath.Join(root, "tests")}, scan.Options{
+	res, err := testRunOpts(t, []string{filepath.Join(root, "tests")}, scan.Options{
 		Rules: []scan.Rule{rules.NewOnlyHappyPathOpts(rules.OnlyHappyPathOpts{
 			Mode:         "coverage",
 			CoveragePath: cov,
@@ -79,7 +78,7 @@ func TestOnlyHappyPath_CoverageModeClean(t *testing.T) {
 
 func TestOnlyHappyPath_CoverageMissingFile(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "no-such-coverage.json")
-	res, err := scan.Run(context.Background(), []string{"testdata/only_happy_path/hit"}, scan.Options{
+	res, err := testRunOpts(t, []string{"testdata/only_happy_path/hit"}, scan.Options{
 		Rules: []scan.Rule{rules.NewOnlyHappyPathOpts(rules.OnlyHappyPathOpts{
 			Mode:         "coverage",
 			CoveragePath: missing,
@@ -104,7 +103,7 @@ func TestEnableOnlyHappyPathCoverage(t *testing.T) {
 	}
 	cov := filepath.Join(root, "coverage_clean.json")
 	got := rules.EnableOnlyHappyPathCoverage([]scan.Rule{rules.NewOnlyHappyPathMin(5)}, cov)
-	res, err := scan.Run(context.Background(), []string{filepath.Join(root, "tests")}, scan.Options{
+	res, err := testRunOpts(t, []string{filepath.Join(root, "tests")}, scan.Options{
 		Rules:        got,
 		PathRoot:     root,
 		CoveragePath: cov,

@@ -31,38 +31,83 @@ func (privateImport) Check(file scan.File) []scan.Finding {
 func privateImportFromModel(path string, model parse.Model) []scan.Finding {
 	var findings []scan.Finding
 	for _, imp := range model.Imports {
-		switch imp.Kind {
-		case "from":
-			if isTestHelperImport(imp.Module, imp.Level) {
-				continue
-			}
-			for _, name := range imp.Names {
-				if !isPrivateName(name) {
-					continue
-				}
-				findings = append(findings, privateImportFinding(path, imp.Lineno, name))
-			}
-		case "import":
-			for _, name := range imp.Names {
-				// Only submodule with a private segment.
-				// Top-level `import _thread` / `_ast` (stdlib) is not a smell.
-				if !strings.Contains(name, ".") || !hasPrivateSegment(name) {
-					continue
-				}
-				if isTestHelperImport(name, 0) {
-					continue
-				}
-				findings = append(findings, privateImportFinding(path, imp.Lineno, privateSegment(name)))
-			}
+		names := privateNamesFromImport(imp)
+		if len(names) == 0 {
+			continue
 		}
+		findings = append(findings, privateImportFinding(path, imp.Lineno, moduleForPrivateImport(imp), names))
 	}
 	return findings
 }
 
-func privateImportFinding(path string, line int, name string) scan.Finding {
-	msg := "test imports private implementation name"
-	if name != "" {
-		msg = fmt.Sprintf("test imports private implementation name %s", name)
+func moduleForPrivateImport(imp parse.Import) string {
+	if imp.Module != "" {
+		return imp.Module
+	}
+	if imp.Kind != "import" {
+		return ""
+	}
+	for _, name := range imp.Names {
+		if !strings.Contains(name, ".") || !hasPrivateSegment(name) {
+			continue
+		}
+		if i := strings.LastIndex(name, "."); i > 0 {
+			return name[:i]
+		}
+	}
+	return ""
+}
+
+func privateNamesFromImport(imp parse.Import) []string {
+	var names []string
+	switch imp.Kind {
+	case "from":
+		if isTestHelperImport(imp.Module, imp.Level) {
+			return nil
+		}
+		for _, name := range imp.Names {
+			if isPrivateName(name) {
+				names = append(names, name)
+			}
+		}
+	case "import":
+		for _, name := range imp.Names {
+			// Only submodule with a private segment.
+			// Top-level `import _thread` / `_ast` (stdlib) is not a smell.
+			if !strings.Contains(name, ".") || !hasPrivateSegment(name) {
+				continue
+			}
+			if isTestHelperImport(name, 0) {
+				continue
+			}
+			seg := privateSegment(name)
+			if seg != "" {
+				names = append(names, seg)
+			}
+		}
+	}
+	return names
+}
+
+func privateImportFinding(path string, line int, module string, names []string) scan.Finding {
+	mod := strings.TrimSpace(module)
+	if mod == "" && len(names) == 1 {
+		// import pkg._internal — module inferred from dotted path segment parent.
+		mod = "implementation"
+	}
+	n := len(names)
+	var msg string
+	switch {
+	case mod != "" && mod != "implementation":
+		msg = fmt.Sprintf(
+			"module %s has %d private name(s) imported by tests (%s) — candidate for a public submodule",
+			mod, n, strings.Join(names, ", "),
+		)
+	default:
+		msg = fmt.Sprintf(
+			"%d private name(s) imported by tests (%s) — candidate for a public submodule",
+			n, strings.Join(names, ", "),
+		)
 	}
 	return scan.Finding{
 		File:     path,
@@ -77,24 +122,26 @@ func privateImportHeuristic(file scan.File) []scan.Finding {
 	src := string(file.Content)
 	var findings []scan.Finding
 	for i, line := range strings.Split(src, "\n") {
-		for _, name := range privateNamesOnLine(line) {
-			findings = append(findings, privateImportFinding(file.Path, i+1, name))
+		mod, names := privateNamesOnLine(line)
+		if len(names) == 0 {
+			continue
 		}
+		findings = append(findings, privateImportFinding(file.Path, i+1, mod, names))
 	}
 	return findings
 }
 
-func privateNamesOnLine(line string) []string {
+// privateNamesOnLine returns module (may be empty) and private names on one import line.
+func privateNamesOnLine(line string) (module string, names []string) {
 	t := strings.TrimSpace(line)
 	if t == "" || strings.HasPrefix(t, "#") {
-		return nil
+		return "", nil
 	}
-	var out []string
 	// from pkg import _foo / from pkg import a, _b
 	if strings.HasPrefix(t, "from ") && strings.Contains(t, " import ") {
 		parts := strings.SplitN(t, " import ", 2)
 		if len(parts) != 2 {
-			return nil
+			return "", nil
 		}
 		modPart := strings.TrimSpace(strings.TrimPrefix(parts[0], "from "))
 		level := 0
@@ -104,13 +151,13 @@ func privateNamesOnLine(line string) []string {
 		}
 		modPart = strings.TrimSpace(modPart)
 		if isTestHelperImport(modPart, level) {
-			return nil
+			return "", nil
 		}
+		var out []string
 		for _, name := range strings.Split(parts[1], ",") {
 			name = strings.TrimSpace(name)
 			name = strings.TrimPrefix(name, "(")
 			name = strings.TrimSuffix(name, ")")
-			// as-alias: "_foo as bar" → check left
 			if idx := strings.Index(name, " as "); idx >= 0 {
 				name = strings.TrimSpace(name[:idx])
 			}
@@ -118,12 +165,13 @@ func privateNamesOnLine(line string) []string {
 				out = append(out, name)
 			}
 		}
-		return out
+		return modPart, out
 	}
 	// import pkg._priv — only submodule with a private segment.
-	// Top-level `import _thread` / `_ast` (stdlib) is not a smell.
 	if strings.HasPrefix(t, "import ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(t, "import "))
+		var out []string
+		mod := ""
 		for _, name := range strings.Split(rest, ",") {
 			name = strings.TrimSpace(name)
 			if idx := strings.Index(name, " as "); idx >= 0 {
@@ -134,10 +182,16 @@ func privateNamesOnLine(line string) []string {
 					continue
 				}
 				out = append(out, privateSegment(name))
+				if mod == "" {
+					if i := strings.LastIndex(name, "."); i > 0 {
+						mod = name[:i]
+					}
+				}
 			}
 		}
+		return mod, out
 	}
-	return out
+	return "", nil
 }
 
 // isTestHelperImport skips private names pulled from tests.* packages or
@@ -192,7 +246,34 @@ func isPrivateName(name string) bool {
 	if len(r) < 2 {
 		return false
 	}
-	return unicode.IsLetter(r[1]) || r[1] == '_'
+	if !(unicode.IsLetter(r[1]) || r[1] == '_') {
+		return false
+	}
+	// _UPPER_CASE constants (import instead of duplicating a literal) are fine.
+	if isPrivateUpperConst(name) {
+		return false
+	}
+	return true
+}
+
+// isPrivateUpperConst reports names like _FOO, _HTTP_STATUS (leading _ + UPPER/digits/_).
+func isPrivateUpperConst(name string) bool {
+	rest := strings.TrimPrefix(name, "_")
+	if rest == "" {
+		return false
+	}
+	hasLetter := false
+	for _, r := range rest {
+		switch {
+		case unicode.IsUpper(r):
+			hasLetter = true
+		case unicode.IsDigit(r) || r == '_':
+			// ok
+		default:
+			return false
+		}
+	}
+	return hasLetter
 }
 
 func hasPrivateSegment(mod string) bool {

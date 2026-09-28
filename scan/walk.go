@@ -7,10 +7,12 @@ import (
 	"strings"
 )
 
-// skipDirs are always skipped (venv / caches); exclude + .gitignore add more.
+// skipDirs are always skipped (venv / caches / editor worktrees); exclude + .gitignore add more.
 var skipDirs = map[string]struct{}{
 	".venv": {}, "venv": {}, ".git": {},
 	"__pycache__": {}, "node_modules": {}, ".tox": {},
+	// Agent/editor worktrees duplicate the suite and inflate findings/score.
+	".claude": {}, ".cursor": {},
 }
 
 var defaultPythonFiles = []string{"test_*.py", "*_test.py"}
@@ -21,6 +23,8 @@ type WalkOptions struct {
 	PythonFiles      []string // empty → test_*.py / *_test.py
 	RespectGitignore bool
 	Root             string // for .gitignore and relative exclude matching; empty → cwd
+	// OnlyPaths, when non-empty, keeps only matching paths (slash-relative or basename).
+	OnlyPaths []string
 }
 
 func isTestPy(name string, patterns []string) bool {
@@ -82,6 +86,9 @@ func Walk(ctx context.Context, roots []string, opts WalkOptions) ([]File, error)
 			if !isTestPy(info.Name(), opts.PythonFiles) {
 				return nil
 			}
+			if len(opts.OnlyPaths) > 0 && !pathInOnly(path, rel, info.Name(), opts.OnlyPaths) {
+				return nil
+			}
 			content, err := os.ReadFile(path)
 			if err != nil {
 				return err
@@ -94,6 +101,32 @@ func Walk(ctx context.Context, roots []string, opts WalkOptions) ([]File, error)
 		}
 	}
 	return files, nil
+}
+
+// pathInOnly reports whether path/rel matches any allowlisted entry.
+// Basename-only matches are intentionally omitted to avoid scanning unrelated
+// same-named files across packages under --diff.
+func pathInOnly(absPath, rel, base string, only []string) bool {
+	_ = base
+	absSlash := filepath.ToSlash(absPath)
+	relSlash := filepath.ToSlash(rel)
+	for _, p := range only {
+		p = filepath.ToSlash(strings.TrimSpace(p))
+		if p == "" {
+			continue
+		}
+		if p == relSlash || p == absSlash {
+			return true
+		}
+		// Suffix match: allow "tests/foo.py" against deep abs paths.
+		if strings.HasSuffix(absSlash, "/"+p) || strings.HasSuffix(relSlash, "/"+p) {
+			return true
+		}
+		if MatchGlob(p, relSlash) {
+			return true
+		}
+	}
+	return false
 }
 
 func relToRoot(path, root string) string {
