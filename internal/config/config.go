@@ -25,6 +25,7 @@ type Config struct {
 	RespectGitignore bool // default true
 	ShowLowPrecision bool // also show low-tier findings (rules not actionable/provisional)
 	All              bool // show everything: no focus filter, all precision tiers
+	DeferToRuff      bool // default true: skip rules ruff already covers (e.g. broad-raises vs PT011)
 	Rules            map[string]RuleConfig
 	Overrides        []Override
 }
@@ -82,6 +83,8 @@ type fileTOML struct {
 	ShowLowPrecision *bool               `toml:"show-low-precision"`
 	ShowLowPrecSnake *bool               `toml:"show_low_precision"`
 	All              *bool               `toml:"all"`
+	DeferToRuff      *bool               `toml:"defer-to-ruff"`
+	DeferToRuffSnake *bool               `toml:"defer_to_ruff"`
 	Rules            map[string]ruleTOML `toml:"rules"`
 	Overrides        []overrideTOML      `toml:"overrides"`
 }
@@ -155,7 +158,7 @@ func Load(startDir string) (Config, error) {
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return Config{RespectGitignore: true, Rules: map[string]RuleConfig{}}, nil
+			return Config{RespectGitignore: true, DeferToRuff: true, Rules: map[string]RuleConfig{}}, nil
 		}
 		dir = parent
 	}
@@ -197,7 +200,7 @@ func testscanSectionPresent(t fileTOML) bool {
 		len(t.PythonFunctions) > 0 || len(t.PythonClasses) > 0 {
 		return true
 	}
-	if t.RespectGitignore != nil || t.ShowLowPrecision != nil || t.ShowLowPrecSnake != nil || t.All != nil ||
+	if t.RespectGitignore != nil || t.ShowLowPrecision != nil || t.ShowLowPrecSnake != nil || t.All != nil || t.DeferToRuff != nil || t.DeferToRuffSnake != nil ||
 		len(t.Rules) > 0 || len(t.Overrides) > 0 {
 		return true
 	}
@@ -292,6 +295,12 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 		showLow = *raw.ShowLowPrecSnake
 	}
 	showAll := raw.All != nil && *raw.All
+	deferRuff := true
+	if raw.DeferToRuff != nil {
+		deferRuff = *raw.DeferToRuff
+	} else if raw.DeferToRuffSnake != nil {
+		deferRuff = *raw.DeferToRuffSnake
+	}
 
 	pythonFiles := raw.PythonFiles
 	pythonFunctions := raw.PythonFunctions
@@ -362,6 +371,7 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 		RespectGitignore: respect,
 		ShowLowPrecision: showLow,
 		All:              showAll,
+		DeferToRuff:      deferRuff,
 		Rules:            rules,
 		Overrides:        overrides,
 	}, nil
