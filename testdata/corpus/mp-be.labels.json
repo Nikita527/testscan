@@ -1,0 +1,1562 @@
+[
+ {
+  "fingerprint": "fc220f4ab4bc7b081c09474d0b5df736",
+  "rule": "name-body-mismatch",
+  "file": "tests/application/me2_execution/test_manifest_contract.py",
+  "line": 81,
+  "label": "fp",
+  "note": "[negated-name] fallback to defaults asserted; invalid input handled gracefully"
+ },
+ {
+  "fingerprint": "cc0719ca1b621e68fe8b4fb41aa31637",
+  "rule": "name-body-mismatch",
+  "file": "tests/application/transit/test_assemble_decision.py",
+  "line": 41,
+  "label": "fp",
+  "note": "[negated-name] does_not_skip; asserts positive APPLYING decision"
+ },
+ {
+  "fingerprint": "71d4d6a00e5c7c2f0b46f3e082404dd1",
+  "rule": "name-body-mismatch",
+  "file": "tests/blueprint/test_documents_api.py",
+  "line": 2210,
+  "label": "fp",
+  "note": "[other: outcome enum] outcome is WarmCacheOutcome.SKIPPED asserted"
+ },
+ {
+  "fingerprint": "d43b2ae44ca26cb358a5f20224c3c487",
+  "rule": "name-body-mismatch",
+  "file": "tests/blueprint/test_warm_ast_contract.py",
+  "line": 760,
+  "label": "fp",
+  "note": "[status-enum] row.status == FAILED plus [error-code] error_code asserted"
+ },
+ {
+  "fingerprint": "da7940323d9fc95f1776a59b51d36334",
+  "rule": "name-body-mismatch",
+  "file": "tests/blueprint/test_warm_dedup_and_terminal_status.py",
+  "line": 673,
+  "label": "fp",
+  "note": "[negated-name] fails_open; asserts outcome enum SKIPPED"
+ },
+ {
+  "fingerprint": "d3abe76aeca3c4270b9262d776b9b525",
+  "rule": "name-body-mismatch",
+  "file": "tests/blueprint/test_warm_dedup_and_terminal_status.py",
+  "line": 698,
+  "label": "fp",
+  "note": "[negated-name] fails_open; asserts outcome enum SKIPPED"
+ },
+ {
+  "fingerprint": "2fad2c5db957660f81c94c2f7b65e95c",
+  "rule": "name-body-mismatch",
+  "file": "tests/config_tool/test_ct_config_seed_service.py",
+  "line": 284,
+  "label": "fp",
+  "note": "[negated-name] does_not_fail; asserts rows created"
+ },
+ {
+  "fingerprint": "2ca0236f3acd17971d2d2ad09150a26b",
+  "rule": "name-body-mismatch",
+  "file": "tests/core/auth/test_validators.py",
+  "line": 357,
+  "label": "fp",
+  "note": "[negated-name] fallback; asserts local claims returned"
+ },
+ {
+  "fingerprint": "9d44aec908110941a07640d522dbe7af",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/domain/test_calculated_base_projection.py",
+  "line": 192,
+  "label": "fp",
+  "note": "[other: issues-list] rejection asserted via issues list length and issue code"
+ },
+ {
+  "fingerprint": "bf92903b7d9164df52ad0c52c53e3345",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/domain/test_config_source.py",
+  "line": 147,
+  "label": "fp",
+  "note": "[negated-name] fail_closed in name; asserts unknown names retained in set"
+ },
+ {
+  "fingerprint": "159e20b1654352374a6986eff22dcefd",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/domain/test_ct_filter_exprs.py",
+  "line": 38,
+  "label": "fp",
+  "note": "[other: skip-filter] skips_invalid; asserts invalid filter filtered out of result"
+ },
+ {
+  "fingerprint": "978a1d7d5e5d832a583e6f05f6e4142c",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/domain/test_datasource_status_gate.py",
+  "line": 36,
+  "label": "fp",
+  "note": "[negated-name] noop; no-raise check, nothing to fail"
+ },
+ {
+  "fingerprint": "8a9c38d8b8ecc0c2f94346b496dfe328",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/domain/test_group_by_selection.py",
+  "line": 61,
+  "label": "fp",
+  "note": "[other: issues-list] rejection asserted via issues list and meta/code"
+ },
+ {
+  "fingerprint": "d36c8ebdcf92a238e127028151099227",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/domain/test_interface_source.py",
+  "line": 55,
+  "label": "fp",
+  "note": "[message-not-none] error message not None and contains text"
+ },
+ {
+  "fingerprint": "244c8819b37340fd182bc20aa437c4ab",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/domain/test_interface_source.py",
+  "line": 66,
+  "label": "fp",
+  "note": "[message-not-none] error message not None and contains text"
+ },
+ {
+  "fingerprint": "d102330d41c14ea5b5f0e3cd57434f33",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/test_operations_validator.py",
+  "line": 151,
+  "label": "fp",
+  "note": "[message-not-none] message not None and contains text"
+ },
+ {
+  "fingerprint": "f30eee6e93e6877d729b25cc066e4827",
+  "rule": "name-body-mismatch",
+  "file": "tests/datasets/test_operations_validator.py",
+  "line": 215,
+  "label": "fp",
+  "note": "[other: returned-list] orphan sources returned as non-empty list equality"
+ },
+ {
+  "fingerprint": "b75c0f7785bd2e4a27e94856e9b32574",
+  "rule": "name-body-mismatch",
+  "file": "tests/imports/test_client_input_datasources.py",
+  "line": 273,
+  "label": "fp",
+  "note": "[status-enum] job.status == PARTIAL and counters.failed == 1"
+ },
+ {
+  "fingerprint": "b6d934d93d27a69d080f2f56b4baaf12",
+  "rule": "name-body-mismatch",
+  "file": "tests/imports/test_ct_config_importer.py",
+  "line": 640,
+  "label": "fp",
+  "note": "[status-enum] result.status == PARTIAL plus failed action in details"
+ },
+ {
+  "fingerprint": "381b33198570308f37f7047e03612ec8",
+  "rule": "name-body-mismatch",
+  "file": "tests/imports/test_ct_config_importer.py",
+  "line": 737,
+  "label": "fp",
+  "note": "[status-enum] result.status == PARTIAL asserted"
+ },
+ {
+  "fingerprint": "47765b564a2f7e296ec919ebc19e9fec",
+  "rule": "name-body-mismatch",
+  "file": "tests/imports/test_import_job_admin_auto_enqueue.py",
+  "line": 72,
+  "label": "fp",
+  "note": "[other: mock-not-called] asserts enqueue.assert_not_called and message_user called"
+ },
+ {
+  "fingerprint": "a8d573254917ea8f814414dbb86e017e",
+  "rule": "name-body-mismatch",
+  "file": "tests/imports/test_interfaces_import_processor.py",
+  "line": 147,
+  "label": "fp",
+  "note": "[counter-failed] counters.failed == 1 asserted"
+ },
+ {
+  "fingerprint": "e7840649e4d0620ab2a9369820871b7e",
+  "rule": "name-body-mismatch",
+  "file": "tests/imports/test_outbound_xml_templates_client_input.py",
+  "line": 137,
+  "label": "fp",
+  "note": "[error-code] issue not None and code == missing_target_client"
+ },
+ {
+  "fingerprint": "55aa22f88b30c8757ea4b09cfa14fb8f",
+  "rule": "name-body-mismatch",
+  "file": "tests/mappings/test_mapping_dataset_version.py",
+  "line": 20,
+  "label": "fp",
+  "note": "[error-code] error not None and code == VERSION_NOT_FOUND"
+ },
+ {
+  "fingerprint": "919a8b1e2a2bd9f46334f2552b6a1911",
+  "rule": "name-body-mismatch",
+  "file": "tests/mappings/test_mapping_interface_guards_api.py",
+  "line": 565,
+  "label": "fp",
+  "note": "[other: result-item-status] item status invalidTransition and errorMessage asserted"
+ },
+ {
+  "fingerprint": "906d3b1e85d5dae35ad6c76558705d21",
+  "rule": "name-body-mismatch",
+  "file": "tests/mappings/test_mapping_status_transition.py",
+  "line": 166,
+  "label": "fp",
+  "note": "[other: result-outcome-str] result.outcome == 'error' and error message asserted"
+ },
+ {
+  "fingerprint": "6dd5f6338844b8ca54ad08a06690355a",
+  "rule": "name-body-mismatch",
+  "file": "tests/mappings/test_mappings_api.py",
+  "line": 1119,
+  "label": "fp",
+  "note": "[status-enum] outbox.status == FAILED and error_code asserted"
+ },
+ {
+  "fingerprint": "34af53c27b560c6f4ca738038f81dc13",
+  "rule": "name-body-mismatch",
+  "file": "tests/mappings/test_mappings_api.py",
+  "line": 1159,
+  "label": "fp",
+  "note": "[status-enum] outbox.status == FAILED and last_error asserted"
+ },
+ {
+  "fingerprint": "068d76f3b8b859cf9440e6671f07038d",
+  "rule": "name-body-mismatch",
+  "file": "tests/mappings/test_mappings_api.py",
+  "line": 1179,
+  "label": "fp",
+  "note": "[status-enum] outbox.status == FAILED and last_error asserted"
+ },
+ {
+  "fingerprint": "223ce02a3ab1f2aaf7a9cd7f94a870cc",
+  "rule": "name-body-mismatch",
+  "file": "tests/notifications/test_policy.py",
+  "line": 81,
+  "label": "fp",
+  "note": "[negated-name] never_raises; asserts graceful none result"
+ },
+ {
+  "fingerprint": "26aeeb9a4a9cafea575dceb3b8947b53",
+  "rule": "name-body-mismatch",
+  "file": "tests/notifications/test_policy.py",
+  "line": 123,
+  "label": "fp",
+  "note": "[negated-name] never_raises; asserts graceful none result"
+ },
+ {
+  "fingerprint": "806d4d69913c0c15edfb300e590de146",
+  "rule": "name-body-mismatch",
+  "file": "tests/notifications/test_policy.py",
+  "line": 166,
+  "label": "fp",
+  "note": "[negated-name] never_raises; asserts graceful none result"
+ },
+ {
+  "fingerprint": "3555ccad39269833dc701451e89cd19a",
+  "rule": "name-body-mismatch",
+  "file": "tests/notifications/test_policy.py",
+  "line": 194,
+  "label": "fp",
+  "note": "[negated-name] never_raises; asserts graceful none result"
+ },
+ {
+  "fingerprint": "52928ac88c9c7e72dcd542f02380eb56",
+  "rule": "name-body-mismatch",
+  "file": "tests/notifications/test_publish_notification.py",
+  "line": 245,
+  "label": "fp",
+  "note": "[negated-name] does_not_raise; call completing is the check"
+ },
+ {
+  "fingerprint": "201bc662ccdc278f7f104eb07da28c2e",
+  "rule": "name-body-mismatch",
+  "file": "tests/notifications/test_ws_consumer.py",
+  "line": 565,
+  "label": "fp",
+  "note": "[negated-name] fails_open; asserts connection admitted and failure logged"
+ },
+ {
+  "fingerprint": "481fad8161563ce8ca43dca52765ffb7",
+  "rule": "name-body-mismatch",
+  "file": "tests/outbox/test_me2_join_occurrence.py",
+  "line": 415,
+  "label": "fp",
+  "note": "[try-except-else] try/except ValueError with else raise AssertionError"
+ },
+ {
+  "fingerprint": "b606eca9e4cc4f5ef6b9d2764424cfa3",
+  "rule": "name-body-mismatch",
+  "file": "tests/outbox/test_me2_publish_service.py",
+  "line": 442,
+  "label": "fp",
+  "note": "[negated-name] completes_when_fails; asserts COMPLETED statuses (resilience test)"
+ },
+ {
+  "fingerprint": "c0d245ac0f822d432be18ac9773bc0f9",
+  "rule": "name-body-mismatch",
+  "file": "tests/outbox/test_me2_publish_service.py",
+  "line": 503,
+  "label": "fp",
+  "note": "[status-enum] row.status == FAILED and error_code asserted"
+ },
+ {
+  "fingerprint": "eb15ceb2cb5bfdedfb938104c940c614",
+  "rule": "name-body-mismatch",
+  "file": "tests/outbox/test_outbox_reclaim.py",
+  "line": 229,
+  "label": "fp",
+  "note": "[other: domain-state] mapping status INACTIVE, needs_review and review_reason_code asserted"
+ },
+ {
+  "fingerprint": "0e87ed72fddac3f94d82ea20d677b3dd",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_accept_apply_delete.py",
+  "line": 407,
+  "label": "fp",
+  "note": "[status-enum] applied.status == FAILED and error_code asserted"
+ },
+ {
+  "fingerprint": "60e4357bca7e8fa28458fdf7e22fc391",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_bulk_actions.py",
+  "line": 96,
+  "label": "fp",
+  "note": "[status-enum] row status REJECTED; 'reject' is the action, not failure"
+ },
+ {
+  "fingerprint": "243c071c59f122753ed0b05554a4458b",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_bulk_actions.py",
+  "line": 114,
+  "label": "fp",
+  "note": "[other: action-verb] reject is a domain action; asserts summary and statuses"
+ },
+ {
+  "fingerprint": "5b2d7a39b6981e2cfc0c721edc734ec9",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_bulk_actions.py",
+  "line": 165,
+  "label": "fp",
+  "note": "[other: action-verb] summary invalidStatus and currentStatus asserted per row"
+ },
+ {
+  "fingerprint": "dd67f559d077d1e33822f18533d16ab5",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_bulk_actions.py",
+  "line": 217,
+  "label": "fp",
+  "note": "[negated-name] never_crosses; asserts summary and foreign row untouched"
+ },
+ {
+  "fingerprint": "2dcbc6446b15ec6f3182f33f72b1909a",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_bulk_actions.py",
+  "line": 262,
+  "label": "fp",
+  "note": "[other: result-summary] protectedEnvironment summary and row unchanged asserted"
+ },
+ {
+  "fingerprint": "506034d9a29f4113b3c6470953beb56a",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_ct_queue.py",
+  "line": 372,
+  "label": "fp",
+  "note": "[status-enum] queue.status == FAILED and error_code asserted"
+ },
+ {
+  "fingerprint": "f4252af8faa3a685fbc04494de20fc47",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_ct_queue.py",
+  "line": 487,
+  "label": "fp",
+  "note": "[status-enum] queue.status == FAILED and error_code asserted"
+ },
+ {
+  "fingerprint": "5f8902809b01120225f6061fa65fda87",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_delete_lifecycle_jobs.py",
+  "line": 183,
+  "label": "fp",
+  "note": "[status-enum] outbox.status == FAILED and failed count asserted"
+ },
+ {
+  "fingerprint": "0a10042a433adf211d37276b75d0a41c",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_queue_api.py",
+  "line": 319,
+  "label": "fp",
+  "note": "[status-enum] REJECTED status asserted; reject is domain action"
+ },
+ {
+  "fingerprint": "ca3d59a9fd2d29a4283cc1b66f3038b8",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_queue_status_notifications.py",
+  "line": 371,
+  "label": "fp",
+  "note": "[other: action-verb] reject is a domain action; asserts notification type/payload"
+ },
+ {
+  "fingerprint": "ead7b465840a9df48a282fdbd5f04184",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_queue_status_notifications.py",
+  "line": 448,
+  "label": "fp",
+  "note": "[status-enum] queue.status == FAILED and errorCode ORPHAN_NO_OUTBOX asserted"
+ },
+ {
+  "fingerprint": "0774a0d00a8870bd5c37b1734a3692a9",
+  "rule": "name-body-mismatch",
+  "file": "tests/transit_queue/test_reopen.py",
+  "line": 116,
+  "label": "fp",
+  "note": "[other: action-verb] reject is audit-field noun; asserts preserved fields"
+ },
+ {
+  "fingerprint": "bd49650b7bbe72aed68626a2953fb176",
+  "rule": "near-duplicate-test",
+  "file": "tests/application/entra_group_sync/test_client_name.py",
+  "line": 37,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected names; prefers-vs-fallback are distinct behaviours."
+ },
+ {
+  "fingerprint": "590860ea635f001ed224be209134ec83",
+  "rule": "near-duplicate-test",
+  "file": "tests/application/me2_execution/test_planner.py",
+  "line": 249,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Identical assert \"unknown\"; only mapping type literal differs."
+ },
+ {
+  "fingerprint": "3c7336fbbe76f5bc25034f7824eedac7",
+  "rule": "near-duplicate-test",
+  "file": "tests/blueprint/domain/test_size_budget.py",
+  "line": 35,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected cache-key strings per source token/kind."
+ },
+ {
+  "fingerprint": "369eaa26dc259d85d2d687b9cfdff58e",
+  "rule": "near-duplicate-test",
+  "file": "tests/blueprint/test_lineage_api.py",
+  "line": 532,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "09ae22ab6dbcec88ffb47b8d4bdd80ea",
+  "rule": "near-duplicate-test",
+  "file": "tests/blueprint/test_warm_ast_contract.py",
+  "line": 95,
+  "label": "fp",
+  "note": "[other: decorators differ] Same body, but override_settings makes it a distinct scenario."
+ },
+ {
+  "fingerprint": "1e5ada90a3429b1cc3e173a2055d564f",
+  "rule": "near-duplicate-test",
+  "file": "tests/config_tool/api/test_catalogs.py",
+  "line": 433,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "bcf0a9f5571cf0b968ea43bcc1fe2104",
+  "rule": "near-duplicate-test",
+  "file": "tests/config_tool/api/test_serializers.py",
+  "line": 61,
+  "label": "fp",
+  "note": "[diff-expected-values] Expected description differs (\"\" vs kwarg); different behaviours."
+ },
+ {
+  "fingerprint": "4c260b42011f18381824a62ab2f68963",
+  "rule": "near-duplicate-test",
+  "file": "tests/core/api/test_rbac_permissions.py",
+  "line": 221,
+  "label": "fp",
+  "note": "[diff-expected-values] Different match messages and permission setup; distinct failure causes."
+ },
+ {
+  "fingerprint": "4f895d9b440d4c5c23a41377f673a490",
+  "rule": "near-duplicate-test",
+  "file": "tests/core/api/test_rbac_permissions.py",
+  "line": 316,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Same exception and match; only query-string literal differs."
+ },
+ {
+  "fingerprint": "48affab24a584fb949bd16bf5e66b3db",
+  "rule": "near-duplicate-test",
+  "file": "tests/core/auth/test_validators.py",
+  "line": 187,
+  "label": "fp",
+  "note": "[diff-expected-values] Different settings, token claims and match messages; distinct rejection reasons."
+ },
+ {
+  "fingerprint": "cfbe21914aec137d629141e484b8a03a",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/me2_compile/test_pipeline_validator.py",
+  "line": 460,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "2deb19261a61b37accd644338f20a805",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_available_fields.py",
+  "line": 34,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected descriptions for different count inputs."
+ },
+ {
+  "fingerprint": "bf2e9ba9517577733de0dd3e5c32b7a8",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_calculated_base_projection.py",
+  "line": 71,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "2c6420fe44137d31292c9872b57da790",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_copy_naming.py",
+  "line": 66,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected copy names (copy 2 vs copy 3)."
+ },
+ {
+  "fingerprint": "afb86ac497065cafb6fa1050239eb765",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_copy_naming.py",
+  "line": 91,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "59b354915aa694ae4d04d4ef86c4dc2e",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_ct_filter_exprs.py",
+  "line": 12,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected expression strings for EQ vs BT/exclude."
+ },
+ {
+  "fingerprint": "c9b531f260a3bd92eaa2173d2866a230",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_expression_builder_validator.py",
+  "line": 142,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected issue codes and paths."
+ },
+ {
+  "fingerprint": "e0518554f34312c3a32bfc16bc64f257",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_expression_builder_validator.py",
+  "line": 304,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected dataType (\"string\" vs \"number\")."
+ },
+ {
+  "fingerprint": "da08226e557d4c13c54a8bf03668a0b4",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_expression_null_functions.py",
+  "line": 43,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "4ad065722fd0350b56eede1c3ca3688a",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/domain/test_product_filters.py",
+  "line": 301,
+  "label": "fp",
+  "note": "[diff-expected-values] Expected \"direct\" vs \"join\"; opposite outcomes."
+ },
+ {
+  "fingerprint": "96843033d911823a38ee6e51c9d9142c",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/test_selection_conflicts.py",
+  "line": 107,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected aliases and negated-membership targets."
+ },
+ {
+  "fingerprint": "b063740c9a9415e018ac07e42714cb5c",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasets/test_usage_graph_api.py",
+  "line": 1024,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "812f873cb91c0df1f6f7053041d90f16",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasources/test_datasources_api.py",
+  "line": 402,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "2b9b88685534ac8a14fc45e6fafdf2cb",
+  "rule": "near-duplicate-test",
+  "file": "tests/datasources/test_field_description_resolver.py",
+  "line": 30,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected strings; override vs fallback paths."
+ },
+ {
+  "fingerprint": "2270e3242ee9ea506e4613a071b313c9",
+  "rule": "near-duplicate-test",
+  "file": "tests/mappings/domain/test_outbound_xml_template_import.py",
+  "line": 36,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Same truthy assert; only interface_name separator differs."
+ },
+ {
+  "fingerprint": "8ee614e475c6deb0dd17e057f860ed53",
+  "rule": "near-duplicate-test",
+  "file": "tests/mappings/domain/test_xml_template_parser.py",
+  "line": 282,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Same raises assertion; only XML input literal differs."
+ },
+ {
+  "fingerprint": "3bb6d94db3af2631f52a28af22ce322c",
+  "rule": "near-duplicate-test",
+  "file": "tests/mappings/test_mapping_build_failure_domain.py",
+  "line": 53,
+  "label": "fp",
+  "note": "[opposite-names] demote vs retry outcomes differ."
+ },
+ {
+  "fingerprint": "1d0f3f088025e81164776507487d22d2",
+  "rule": "near-duplicate-test",
+  "file": "tests/mappings/test_xml_templates_api.py",
+  "line": 224,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "29db2126dfee813fbaa5390514161ddc",
+  "rule": "near-duplicate-test",
+  "file": "tests/me2_test_run/test_adf_auth_policy.py",
+  "line": 36,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Same MANAGED_IDENTITY assert; only identity field values differ."
+ },
+ {
+  "fingerprint": "b6f9585108a33c89bbb66b65040bab66",
+  "rule": "near-duplicate-test",
+  "file": "tests/me2_test_run/test_adf_auth_policy.py",
+  "line": 56,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Same DEFAULT_CHAIN assert; only identity field values differ."
+ },
+ {
+  "fingerprint": "2e2bfd1b026bcf4d958f8d5b0fa610cc",
+  "rule": "near-duplicate-test",
+  "file": "tests/me2_test_run/test_session_paths.py",
+  "line": 196,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected path dicts from different prefixes."
+ },
+ {
+  "fingerprint": "8949550ef86a06bf9fd2414e6458b7c0",
+  "rule": "near-duplicate-test",
+  "file": "tests/notifications/test_blueprint_progress.py",
+  "line": 173,
+  "label": "fp",
+  "note": "[opposite-names] passes vs dropped; different push counts expected."
+ },
+ {
+  "fingerprint": "415a076c024c8b20fd4d9c869f593047",
+  "rule": "near-duplicate-test",
+  "file": "tests/notifications/test_notification_api.py",
+  "line": 146,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Same 400 assert; only query parameter differs."
+ },
+ {
+  "fingerprint": "2a5e712e3f93a8b91a5a32509724acfe",
+  "rule": "near-duplicate-test",
+  "file": "tests/notifications/test_notification_api.py",
+  "line": 178,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "8c185ad063f2158027673fda2c32a1e5",
+  "rule": "near-duplicate-test",
+  "file": "tests/notifications/test_notification_api.py",
+  "line": 266,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "eb9bacb98e43bc38e0b4f761a63ad33f",
+  "rule": "near-duplicate-test",
+  "file": "tests/notifications/test_ws_consumer.py",
+  "line": 319,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Same 4401 denial assert; only ticket URL differs."
+ },
+ {
+  "fingerprint": "63f2349eebb3446597ab44ef7c01e37b",
+  "rule": "near-duplicate-test",
+  "file": "tests/outbox/test_me2_adls_writer.py",
+  "line": 288,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "a619a8dade5c97ea60109823e7647772",
+  "rule": "near-duplicate-test",
+  "file": "tests/outbox/test_outbox_admin_retry.py",
+  "line": 89,
+  "label": "tp",
+  "note": "[same-asserts-diff-inputs] Same dispatch assert; event_type literal flows through expected value."
+ },
+ {
+  "fingerprint": "3bc8752329873bf370a002d1bd5c2fbe",
+  "rule": "near-duplicate-test",
+  "file": "tests/outbox/test_outbox_dispatch.py",
+  "line": 81,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected log messages; distinct refusal reasons."
+ },
+ {
+  "fingerprint": "a8973ff21c6579d5ead7ae76a2dfacbe",
+  "rule": "near-duplicate-test",
+  "file": "tests/outbox/test_outbox_reclaim.py",
+  "line": 459,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "623c9f3b21d54db9256a09ab63a0de3a",
+  "rule": "near-duplicate-test",
+  "file": "tests/overview/domain/test_job_retry_policy.py",
+  "line": 68,
+  "label": "fp",
+  "note": "[distinct-scenario] separate documented scenario, not adjacent; parametrize would hurt readability"
+ },
+ {
+  "fingerprint": "5aa43dbddc6ac4fb516447a614b77b7c",
+  "rule": "near-duplicate-test",
+  "file": "tests/tooling/test_audit_type_ignores.py",
+  "line": 47,
+  "label": "fp",
+  "note": "[diff-expected-values] Different expected categories (django_meta vs drf_declared_field)."
+ },
+ {
+  "fingerprint": "b69ca7be6e39b8f3969b610a247fada5",
+  "rule": "near-duplicate-test",
+  "file": "tests/tooling/test_audit_type_ignores.py",
+  "line": 134,
+  "label": "fp",
+  "note": "[other: same asserts, different input classes] Known FP; ORM ignore vs path-scope violation."
+ },
+ {
+  "fingerprint": "f915cc3a711b9ac0a754d4365ad2f0e4",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/application/me2_execution/test_dependency_planner.py",
+  "line": 713,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "501eb6fc56180ec4053236fca489797d",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/blueprint/domain/test_humanize.py",
+  "line": 601,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "9d156f5f18388a7cea2e40899104fb30",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/blueprint/test_pdf_progress.py",
+  "line": 35,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "8135ecc78b905e35989f9811b83ce58c",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/blueprint/test_rn_lineage_ref_adapter.py",
+  "line": 18,
+  "label": "fp",
+  "note": "Listed in module __all__ deliberately; pure projection helper exported for tests."
+ },
+ {
+  "fingerprint": "40a30ddcfa853034de61059a2b15e3c7",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/blueprint/test_rn_source_names_adapter.py",
+  "line": 19,
+  "label": "fp",
+  "note": "Listed in module __all__ deliberately; pure projection helper exported for tests."
+ },
+ {
+  "fingerprint": "f698a65fc9df7fe53155f396cbc7bb4b",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/blueprint/test_warm_rn_soft_resume.py",
+  "line": 23,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "097ea1bb16e0c2cdf4b80ac24c123904",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/blueprint/test_warm_rn_soft_resume.py",
+  "line": 28,
+  "label": "fp",
+  "note": "Listed in module __all__ deliberately; pure projection helper exported for tests."
+ },
+ {
+  "fingerprint": "6278d7d5c26ccead80d9ef4b86dc7c6b",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/datasets/domain/me2_compile/test_dataset_compiler_golden.py",
+  "line": 20,
+  "label": "tp",
+  "note": "Public alias build_me2_rules exists; import it instead of the private name."
+ },
+ {
+  "fingerprint": "ce6d2d29cb84fd0f623c82c23dc8036f",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/datasets/domain/test_expression_add_days.py",
+  "line": 110,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "1a1fd04a3063cf147818b757bed4bfe7",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/datasets/domain/test_expression_null_functions.py",
+  "line": 62,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "fe8d83bb79d14287f17167d232fe01b6",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/datasets/domain/test_expression_null_functions.py",
+  "line": 82,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "d14d66c35eb43134f900a7b9ad732de8",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/datasets/test_filter_legacy_v2_golden.py",
+  "line": 1,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "cc560a5b8522147f2c5ca11c7662b42d",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/imports/test_adls_blob_created_events.py",
+  "line": 11,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "4ed53a3892f3e96e36caaaddee9e8beb",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/imports/test_adls_blob_created_events.py",
+  "line": 23,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "f6f5b94e732f42320c20c9c67f5695be",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/imports/test_client_input_datasources.py",
+  "line": 590,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "500b7bfa9146038e9b6d18bf7c0317ff",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/mappings/test_xml_template_ownership.py",
+  "line": 307,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "53b3928d49051360ccaefbc035092eff",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/mappings/test_xml_template_ownership.py",
+  "line": 349,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "cbba7c5ad34c7e961650ba30595f6962",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/me2_test_run/test_adf_client.py",
+  "line": 18,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "6a45f987a9d432de998ef6449048a3db",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/notifications/test_ws_ticket.py",
+  "line": 7,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "a8f38c6dedad6552d90f60aac2f2990d",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_composite_delta_compiler.py",
+  "line": 9,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "4173cac54d35960f8de091adb61f3619",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_ct_transit_service.py",
+  "line": 33,
+  "label": "fp",
+  "note": "Intricate transit helper internals unit-tested; no public surface for each."
+ },
+ {
+  "fingerprint": "5fdf657375288de534f7eaf7ab5d053f",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_adls_writer.py",
+  "line": 28,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "bea2870aef42bee323520883a677f0d2",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_adls_writer.py",
+  "line": 658,
+  "label": "fp",
+  "note": "Filesystem setup helper used as test fixture seam, not behavior under test."
+ },
+ {
+  "fingerprint": "41262eb2212961a38ad195025f1bdc8f",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_adls_writer.py",
+  "line": 675,
+  "label": "fp",
+  "note": "Filesystem setup helper used as test fixture seam, not behavior under test."
+ },
+ {
+  "fingerprint": "e6aeb1aad9788c20346e4f993b81bfe0",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_adls_writer.py",
+  "line": 5014,
+  "label": "tp",
+  "note": "Public alias build_me2_rules exists; import it instead of the private name."
+ },
+ {
+  "fingerprint": "ffc0c4ba8921c7dde3edf3f9b8fa38b2",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_adls_writer.py",
+  "line": 5227,
+  "label": "tp",
+  "note": "Public alias build_me2_rules exists; import it instead of the private name."
+ },
+ {
+  "fingerprint": "c73271d95d6e8355e55f9bc29bfb6c52",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_adls_writer.py",
+  "line": 5437,
+  "label": "tp",
+  "note": "Public alias build_me2_rules exists; import it instead of the private name."
+ },
+ {
+  "fingerprint": "057bda9200d9471870f6d8a48863dffe",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_cache_fallback_compiler.py",
+  "line": 5,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "24fec2588d59ffbfb6c3667712c477e6",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_cache_ref_compiler.py",
+  "line": 22,
+  "label": "tp",
+  "note": "Public alias build_me2_rules exists; import it instead of the private name."
+ },
+ {
+  "fingerprint": "921f0d8a68496120a259956e9c5f79ca",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_compiler_fail_fast.py",
+  "line": 32,
+  "label": "skip",
+  "note": "Public alias exists for build rules, but validator has no public surface."
+ },
+ {
+  "fingerprint": "1782c9ba80f429fef930e8294168a7ba",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_compiler_filter_engine.py",
+  "line": 28,
+  "label": "tp",
+  "note": "Public alias build_me2_rules exists; import it instead of the private name."
+ },
+ {
+  "fingerprint": "059ca54e7f550bf8dcc185749fa09e18",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_compiler_phase_b.py",
+  "line": 7,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "7543e57dae585d6998ea68ff23fcbba5",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_compiler_product_filters.py",
+  "line": 30,
+  "label": "tp",
+  "note": "Public alias build_me2_rules exists; import it instead of the private name."
+ },
+ {
+  "fingerprint": "c8578a4a26573f51f51f8fb1dda53632",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_compiler_product_filters.py",
+  "line": 509,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "c7e40ae6d7aef94bdd60aeba545744d5",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_compiler_product_filters.py",
+  "line": 575,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "6a42634b35b146a4bb787fac52f422da",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_compiler_product_filters.py",
+  "line": 647,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "7e2fec5a3be1e640e09f5c63b3fb2a3e",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_field_catalog.py",
+  "line": 16,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "0351bd936a95a5ab2192d5dc6cea563d",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_me2_join_occurrence.py",
+  "line": 2,
+  "label": "fp",
+  "note": "Pure compiler helper with intricate logic, tested directly; no public surface."
+ },
+ {
+  "fingerprint": "2beedc56bca0fca7b16e937bd14b26d2",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/outbox/test_transit_service.py",
+  "line": 1,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "71a05a16d87afa0e173869672c6e47a5",
+  "rule": "test-imports-implementation-private",
+  "file": "tests/transit_queue/test_ct_queue.py",
+  "line": 63,
+  "label": "fp",
+  "note": "Unit test of small pure private helper with intricate edge cases."
+ },
+ {
+  "fingerprint": "2258825d36634e860dfb949eb41f3cde",
+  "rule": "assert-in-emptyable-loop",
+  "file": "tests/blueprint/domain/test_lineage_pdf.py",
+  "line": 412,
+  "label": "tp",
+  "note": "Loop over _links_to results passes vacuously if no links emitted."
+ },
+ {
+  "fingerprint": "b44eee1081a0230f91e2246dd3e2ae39",
+  "rule": "commented-assert",
+  "file": "tests/blueprint/test_status_annotations_api.py",
+  "line": 198,
+  "label": "fp",
+  "note": "Prose comment describing next real asserts, not commented-out code."
+ },
+ {
+  "fingerprint": "dca3b6148f33ba18eca96cf0f259fc94",
+  "rule": "mock-only-assert",
+  "file": "tests/blueprint/test_warm_dedup_and_terminal_status.py",
+  "line": 435,
+  "label": "fp",
+  "note": "Skip behavior observable only via collaborator mocks not called; intended."
+ },
+ {
+  "fingerprint": "4191d098f9aa21ba72319a9407f03429",
+  "rule": "weak-assert",
+  "file": "tests/clients/test_ct_entitlements.py",
+  "line": 341,
+  "label": "fp",
+  "note": "Positive allow-guard test; 200 is the contract, denial tests cover 403."
+ },
+ {
+  "fingerprint": "fae50ef7743b06937558f2f33923077b",
+  "rule": "weak-assert",
+  "file": "tests/clients/test_me2_integration_admin_form.py",
+  "line": 349,
+  "label": "fp",
+  "note": "Asserts form invalid and error keyed on the exact field; sufficient."
+ },
+ {
+  "fingerprint": "57d3bf17409cbcbc8c2ce8245bb1669c",
+  "rule": "wall-clock-in-test",
+  "file": "tests/config_tool/domain/test_profile_resolver.py",
+  "line": 88,
+  "label": "fp",
+  "note": "Harmless date.today() passed as as_of for error-path resolution."
+ },
+ {
+  "fingerprint": "959484c6bc7f69ba7f5cbdcfb7999837",
+  "rule": "wall-clock-in-test",
+  "file": "tests/config_tool/domain/test_profile_resolver.py",
+  "line": 106,
+  "label": "fp",
+  "note": "Harmless date.today() passed as as_of for error-path resolution."
+ },
+ {
+  "fingerprint": "7d03c8f1676b14de2d99f6acf83ff98c",
+  "rule": "weak-assert",
+  "file": "tests/config_tool/test_ct_api_guard.py",
+  "line": 104,
+  "label": "fp",
+  "note": "Positive guard test; 200 is the contract, 403 sibling tests exist."
+ },
+ {
+  "fingerprint": "f36633c0670913146ef302bf2d26c622",
+  "rule": "weak-assert",
+  "file": "tests/core/api/test_dependency_graph_throttle.py",
+  "line": 111,
+  "label": "fp",
+  "note": "Loop asserts 200 for 10 calls; status is the throttle contract."
+ },
+ {
+  "fingerprint": "3cc2673bea958e55606c2c7560656f5e",
+  "rule": "overbroad-equality",
+  "file": "tests/core/rbac/test_config_tool_permissions.py",
+  "line": 46,
+  "label": "fp",
+  "note": "Exact RBAC permission set is an intentional security contract."
+ },
+ {
+  "fingerprint": "1dd697bc1ef01ac32f0af71da315888d",
+  "rule": "only-happy-path",
+  "file": "tests/datasets/domain/me2_compile/test_expression_emit.py",
+  "line": 11,
+  "label": "fp",
+  "note": "Pure string helper; rule misdetects negative-path need for quoting function."
+ },
+ {
+  "fingerprint": "e0e4ebe0e2e81c0c44b72310b58a1989",
+  "rule": "weak-assert",
+  "file": "tests/datasets/domain/me2_compile/test_pipeline_validator.py",
+  "line": 101,
+  "label": "fp",
+  "note": "assert result.is_valid with errors message is the validator accept contract."
+ },
+ {
+  "fingerprint": "8d5cf594f8355706699c0c3264dce8ae",
+  "rule": "weak-assert",
+  "file": "tests/datasets/domain/me2_compile/test_pipeline_validator.py",
+  "line": 129,
+  "label": "fp",
+  "note": "assert result.is_valid with errors message is the validator accept contract."
+ },
+ {
+  "fingerprint": "09f555a3f8309e751c8849791ddbde55",
+  "rule": "weak-assert",
+  "file": "tests/datasets/domain/me2_compile/test_pipeline_validator.py",
+  "line": 170,
+  "label": "fp",
+  "note": "assert result.is_valid with errors message is the validator accept contract."
+ },
+ {
+  "fingerprint": "4d0bca59d2c3eaf648d17baf042ecd9f",
+  "rule": "weak-assert",
+  "file": "tests/datasets/domain/me2_compile/test_pipeline_validator.py",
+  "line": 201,
+  "label": "fp",
+  "note": "assert result.is_valid with errors message is the validator accept contract."
+ },
+ {
+  "fingerprint": "7f69e8b26e63392db7b504709b948aac",
+  "rule": "weak-assert",
+  "file": "tests/datasets/domain/me2_compile/test_pipeline_validator.py",
+  "line": 313,
+  "label": "fp",
+  "note": "assert result.is_valid with errors message is the validator accept contract."
+ },
+ {
+  "fingerprint": "6c31a54d135167e48193d22f0b5e2c45",
+  "rule": "weak-assert",
+  "file": "tests/datasets/domain/me2_compile/test_pipeline_validator.py",
+  "line": 524,
+  "label": "fp",
+  "note": "assert result.is_valid with errors message is the validator accept contract."
+ },
+ {
+  "fingerprint": "86064f81bad4e526843585ff03caaef3",
+  "rule": "broad-raises",
+  "file": "tests/datasets/domain/test_expression_builder_validator.py",
+  "line": 718,
+  "label": "tp",
+  "note": "Concrete ExpressionValidationError exists; Exception too broad."
+ },
+ {
+  "fingerprint": "7bbd1d1ee74d03cba1f7f8f014923f60",
+  "rule": "only-happy-path",
+  "file": "tests/datasets/domain/test_nested_source_field_meta.py",
+  "line": 12,
+  "label": "fp",
+  "note": "SUT is a dataclass/type name, not a function under test; wrong detection."
+ },
+ {
+  "fingerprint": "a77e9060b67ad1adcc27a9b2dd0e30c4",
+  "rule": "overbroad-equality",
+  "file": "tests/datasets/domain/test_usage_graph.py",
+  "line": 211,
+  "label": "fp",
+  "note": "Edge set equality is the graph topology contract; focused checks would be worse."
+ },
+ {
+  "fingerprint": "3a4cdbc4941d7877bacf8bac98d4d684",
+  "rule": "overbroad-equality",
+  "file": "tests/datasets/domain/test_usage_graph.py",
+  "line": 533,
+  "label": "fp",
+  "note": "Edge set equality is the graph topology contract."
+ },
+ {
+  "fingerprint": "91b0dbe975ea191a94ceecab767b52f9",
+  "rule": "only-happy-path",
+  "file": "tests/datasets/test_available_sources_limit.py",
+  "line": 20,
+  "label": "fp",
+  "note": "SUT is test-module private helper _rows; wrong SUT detection."
+ },
+ {
+  "fingerprint": "5424f5e1e12f9e6f960e5682be299d07",
+  "rule": "overbroad-equality",
+  "file": "tests/datasets/test_dataset_field_mapping.py",
+  "line": 106,
+  "label": "fp",
+  "note": "Exact output of pure mapping function; full list is the contract."
+ },
+ {
+  "fingerprint": "9e0bac57b6c9098b8296f4b59090be36",
+  "rule": "overbroad-equality",
+  "file": "tests/datasets/test_datasets_api.py",
+  "line": 5563,
+  "label": "fp",
+  "note": "Exact structured error_details payload is client-facing contract."
+ },
+ {
+  "fingerprint": "03f1ca0b3de2bf9d7a0995761dc9053d",
+  "rule": "overbroad-equality",
+  "file": "tests/datasets/test_datasets_api.py",
+  "line": 5679,
+  "label": "fp",
+  "note": "Exact structured error_details payload is client-facing contract."
+ },
+ {
+  "fingerprint": "91ffa163edab4494edf1d3a0c98f567c",
+  "rule": "no-assert",
+  "file": "tests/datasets/test_interface_source_api.py",
+  "line": 326,
+  "label": "fp",
+  "note": "Intentional does-not-raise validation of allowed case; name says allow."
+ },
+ {
+  "fingerprint": "72417d3afd148cedb2220d5388a180c0",
+  "rule": "overbroad-equality",
+  "file": "tests/datasources/test_datasources_api.py",
+  "line": 99,
+  "label": "fp",
+  "note": "Exact API list response contract check, intended."
+ },
+ {
+  "fingerprint": "31bbbc485ccd101f8ecd6ff4cf60db67",
+  "rule": "overbroad-equality",
+  "file": "tests/datasources/test_datasources_api.py",
+  "line": 178,
+  "label": "fp",
+  "note": "Exact API nested fields contract check, intended."
+ },
+ {
+  "fingerprint": "79dc4d130efc6f0de69f0673e54d99c8",
+  "rule": "overbroad-equality",
+  "file": "tests/datasources/test_datasources_api.py",
+  "line": 341,
+  "label": "fp",
+  "note": "Exact API list response contract check, intended."
+ },
+ {
+  "fingerprint": "79c46d96346622b5854d456274eedf22",
+  "rule": "overbroad-equality",
+  "file": "tests/datasources/test_datasources_api.py",
+  "line": 363,
+  "label": "fp",
+  "note": "Exact API list response contract check, intended."
+ },
+ {
+  "fingerprint": "55c8d2b8ec64293d255545d17bb8d6ca",
+  "rule": "overbroad-equality",
+  "file": "tests/datasources/test_datasources_api.py",
+  "line": 515,
+  "label": "fp",
+  "note": "Exact API job polling response contract check, intended."
+ },
+ {
+  "fingerprint": "0731ece6e75e9bad1edd7331a3963ac9",
+  "rule": "mock-only-assert",
+  "file": "tests/imports/test_import_job_adls_cleanup.py",
+  "line": 40,
+  "label": "fp",
+  "note": "External storage delete call is the observable effect of job deletion."
+ },
+ {
+  "fingerprint": "4421c544697656d5280beccc22ecec54",
+  "rule": "mock-only-assert",
+  "file": "tests/imports/test_import_job_admin_auto_enqueue.py",
+  "line": 67,
+  "label": "fp",
+  "note": "Admin hook only orchestrates service; validate/enqueue calls are the behavior."
+ },
+ {
+  "fingerprint": "80cc00db31820a2bca9d60f0bf485902",
+  "rule": "mock-only-assert",
+  "file": "tests/imports/test_import_job_admin_auto_enqueue.py",
+  "line": 96,
+  "label": "fp",
+  "note": "Negative case: enqueue not called when invalid; collaborator call is behavior."
+ },
+ {
+  "fingerprint": "f412c7e67af56a7516a2071f2071b780",
+  "rule": "only-happy-path",
+  "file": "tests/imports/test_import_job_service_yaml.py",
+  "line": 38,
+  "label": "fp",
+  "note": "SUT json_payload.encode is a str method; wrong SUT detection."
+ },
+ {
+  "fingerprint": "4b0be51ee4d2ac885b76ea80026c6a02",
+  "rule": "weak-assert",
+  "file": "tests/mappings/test_mapping_interface_identity_constraints.py",
+  "line": 82,
+  "label": "fp",
+  "note": "Verifies second owned copy with different status is created without IntegrityError."
+ },
+ {
+  "fingerprint": "af9ab67c7603ddbb9d5831209b8ce77d",
+  "rule": "overbroad-equality",
+  "file": "tests/mappings/test_mappings_api.py",
+  "line": 488,
+  "label": "fp",
+  "note": "Exact ordered field rows persisted; intended data contract."
+ },
+ {
+  "fingerprint": "8f47c63a080d36201bd11d2148213d99",
+  "rule": "overbroad-equality",
+  "file": "tests/mappings/test_mappings_api.py",
+  "line": 1256,
+  "label": "fp",
+  "note": "Exact structured error_details payload is client-facing contract."
+ },
+ {
+  "fingerprint": "542da95d975ebc35af4d793f614f42a0",
+  "rule": "overbroad-equality",
+  "file": "tests/mappings/test_mappings_mappings_api.py",
+  "line": 568,
+  "label": "fp",
+  "note": "Exact API profiles list response contract check, intended."
+ },
+ {
+  "fingerprint": "caeb8a0ae4c88a028c0edbc757588b5c",
+  "rule": "overbroad-equality",
+  "file": "tests/mappings/test_mappings_mappings_api.py",
+  "line": 1790,
+  "label": "fp",
+  "note": "Exact structured error_details payload is client-facing contract."
+ },
+ {
+  "fingerprint": "6e5c8b9e236ae4ff70623634872eb7dd",
+  "rule": "weak-assert",
+  "file": "tests/mappings/test_xml_template_admin.py",
+  "line": 57,
+  "label": "fp",
+  "note": "Asserts form invalid with error on the specific upload_file field."
+ },
+ {
+  "fingerprint": "aac3934704219be3261eec06d90c1593",
+  "rule": "mock-only-assert",
+  "file": "tests/me2_test_run/test_orchestrator.py",
+  "line": 737,
+  "label": "fp",
+  "note": "Missing session means writer must not be called; collaborator is the effect."
+ },
+ {
+  "fingerprint": "20c127e1b3994ec9b6bd9affe28cf764",
+  "rule": "mock-only-assert",
+  "file": "tests/me2_test_run/test_orchestrator.py",
+  "line": 762,
+  "label": "fp",
+  "note": "Asserts settings reader called for session client and ADF triggered with that config."
+ },
+ {
+  "fingerprint": "eef42f947c6bc2733c9f23643356c33a",
+  "rule": "mock-only-assert",
+  "file": "tests/me2_test_run/test_orchestrator.py",
+  "line": 1290,
+  "label": "fp",
+  "note": "Task wiring: finalize receives failed status and error args; that is the contract."
+ },
+ {
+  "fingerprint": "1eefd755ae10045e4780950e77035f7b",
+  "rule": "no-assert",
+  "file": "tests/notifications/test_blueprint_progress.py",
+  "line": 94,
+  "label": "fp",
+  "note": "Explicit does-not-propagate test; name and comment state intent, no raise is check."
+ },
+ {
+  "fingerprint": "b09e9cfa9a56ff170d8569c4dcb23a04",
+  "rule": "no-assert",
+  "file": "tests/notifications/test_blueprint_progress.py",
+  "line": 110,
+  "label": "fp",
+  "note": "Explicit does-not-propagate test; name and comment state intent, no raise is check."
+ },
+ {
+  "fingerprint": "df68a4e6e9f1f2092335f3b5648e6868",
+  "rule": "no-assert",
+  "file": "tests/notifications/test_blueprint_progress.py",
+  "line": 244,
+  "label": "fp",
+  "note": "Explicit does-not-propagate test; name and comment state intent, no raise is check."
+ },
+ {
+  "fingerprint": "6b371be726f63d37496776998030f178",
+  "rule": "weak-assert",
+  "file": "tests/notifications/test_ws_consumer.py",
+  "line": 341,
+  "label": "fp",
+  "note": "Bare assert on connect; real check is _assert_denied helper with 4401."
+ },
+ {
+  "fingerprint": "6d277c73b578c78f7fe4974cd512f48f",
+  "rule": "sleep-in-test",
+  "file": "tests/notifications/test_ws_consumer.py",
+  "line": 719,
+  "label": "tp",
+  "note": "Fixed asyncio.sleep(0.15) races heartbeat loop; poll registry or wait on event."
+ },
+ {
+  "fingerprint": "174fea4c5fc3cc148e982d784d80f1ad",
+  "rule": "overbroad-equality",
+  "file": "tests/overview/domain/test_job_failure_presentation.py",
+  "line": 30,
+  "label": "fp",
+  "note": "Exact structured error_details presentation contract."
+ },
+ {
+  "fingerprint": "ad2814cce55b1a3ac7669839f330365a",
+  "rule": "overbroad-equality",
+  "file": "tests/overview/domain/test_job_failure_presentation.py",
+  "line": 205,
+  "label": "fp",
+  "note": "Exact structured error_details presentation contract."
+ },
+ {
+  "fingerprint": "9511d83dbdb245d743ace1ab6d9b89af",
+  "rule": "wall-clock-in-test",
+  "file": "tests/overview/test_env_change_application.py",
+  "line": 298,
+  "label": "fp",
+  "note": "now(utc) only fills a stub view timestamp; no assertion depends on it."
+ },
+ {
+  "fingerprint": "069e02c26c2ea438e545e087424f9316",
+  "rule": "wall-clock-in-test",
+  "file": "tests/overview/test_env_change_application.py",
+  "line": 393,
+  "label": "fp",
+  "note": "now(utc) only fills a stub view timestamp; no assertion depends on it."
+ },
+ {
+  "fingerprint": "1c6f66fca2b7a11c5bac8bd5ff92cefb",
+  "rule": "wall-clock-in-test",
+  "file": "tests/overview/test_environment_overview.py",
+  "line": 23,
+  "label": "tp",
+  "note": "Naive datetime.now().date() vs app localdate (UTC); diverges in UTC+3 at 00-03."
+ },
+ {
+  "fingerprint": "6f11017a37499124baa5cdd12165ce4f",
+  "rule": "wall-clock-in-test",
+  "file": "tests/overview/test_environment_overview.py",
+  "line": 116,
+  "label": "tp",
+  "note": "Naive datetime.now().date() vs app localdate (UTC); diverges in UTC+3 at 00-03."
+ },
+ {
+  "fingerprint": "abf0724dfbe9ea6abc55877ac41f675d",
+  "rule": "wall-clock-in-test",
+  "file": "tests/overview/test_environment_overview.py",
+  "line": 183,
+  "label": "tp",
+  "note": "Naive datetime.now().date() vs app localdate (UTC); diverges in UTC+3 at 00-03."
+ },
+ {
+  "fingerprint": "96f58575b44597d2d16dcfd1e280c5fc",
+  "rule": "wall-clock-in-test",
+  "file": "tests/overview/test_environment_overview.py",
+  "line": 230,
+  "label": "tp",
+  "note": "Naive datetime.now().date() vs app localdate (UTC); diverges in UTC+3 at 00-03."
+ },
+ {
+  "fingerprint": "7c4b3dc8b0a0d83fe8dcef2bfb3dfe9c",
+  "rule": "wall-clock-in-test",
+  "file": "tests/overview/test_environment_overview.py",
+  "line": 278,
+  "label": "tp",
+  "note": "Naive datetime.now().date() vs app localdate (UTC); diverges in UTC+3 at 00-03."
+ },
+ {
+  "fingerprint": "e09fdc1535172ef343f711b7ad29fb93",
+  "rule": "wall-clock-in-test",
+  "file": "tests/overview/test_environment_overview.py",
+  "line": 307,
+  "label": "tp",
+  "note": "Naive datetime.now().date() vs app localdate (UTC); diverges in UTC+3 at 00-03."
+ },
+ {
+  "fingerprint": "c2fef1873604dac5cf4e1ef3521ce564",
+  "rule": "broad-raises",
+  "file": "tests/transit_queue/test_ct_queue.py",
+  "line": 448,
+  "label": "tp",
+  "note": "Specific transit stale-source error class exists; assert on class, not Exception."
+ }
+]
