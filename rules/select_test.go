@@ -12,7 +12,7 @@ func TestSelect(t *testing.T) {
 	all := rules.All()
 
 	t.Run("empty_only_returns_defaults_minus_disable", func(t *testing.T) {
-		got, err := rules.Select(defaults, all, nil, nil, []string{"no-assert", "empty-test"})
+		got, err := rules.Select(defaults, all, nil, nil, []string{"todo-test", "empty-test"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -20,7 +20,7 @@ func TestSelect(t *testing.T) {
 			t.Fatalf("got %d rules, want %d", len(got), len(defaults)-2)
 		}
 		for _, r := range got {
-			if r.ID() == "no-assert" || r.ID() == "empty-test" {
+			if r.ID() == "todo-test" || r.ID() == "empty-test" {
 				t.Fatalf("disabled rule still present: %s", r.ID())
 			}
 		}
@@ -103,8 +103,8 @@ func TestSelect(t *testing.T) {
 
 func TestOptionalAndAll(t *testing.T) {
 	opt := rules.Optional()
-	if len(opt) != 5 {
-		t.Fatalf("Optional=%d, want 5", len(opt))
+	if len(opt) != 8 {
+		t.Fatalf("Optional=%d, want 8", len(opt))
 	}
 	all := rules.All()
 	if len(all) != len(rules.Default())+len(opt) {

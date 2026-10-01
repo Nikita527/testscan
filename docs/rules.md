@@ -34,28 +34,51 @@ def test_ok():
 
 ## no-assert
 
-**Severity:** note  
-**When:** test has no `assert` / `pytest.raises` / `pytest.warns` / assert-helper call.  
-Skips no-raise style names (`accepts`, `does_not_raise`, …) and bodies that only call `validate_` / `check_` / `ensure_` / `assert_*`. Resolves one level into same-module helpers (`assert_*` / `_assert_*` / `check_*` or helpers that themselves assert).
+**Severity:** note
+**Opt-in** (`--enable no-assert`; data-flow rule, precision not yet measured on the corpus).
+**When:** the test exercises the SUT but **no check depends on the SUT result** (data-flow, see below), or the test has no `assert` / `pytest.raises` / `pytest.warns` / assert-helper at all.
+
+SUT = a call into the project package (same definition as `only-happy-path`) or a test-client request (`client.post(...)`, a helper handed the client). A check *depends on the SUT* when it reads a name that flows from a SUT result or SUT side effect:
+
+- assignment, augmented assignment, tuple unpacking, attribute/subscript access, `for`/`with ... as`/`except ... as` targets, comprehensions, f-strings, and calls with a tainted argument;
+- objects passed into a SUT call (fixtures, fakes, even when nested in other calls such as `Wrap(state)`) are tainted from that call on;
+- state observed after the SUT: `obj.refresh_from_db()`, `Model.objects.*`, calls on fixtures or test-local helpers after the SUT, `caplog`/`capsys`/`mailoutbox`/`tmp_path`;
+- `with pytest.raises(...)` / `with CaptureQueriesContext(...) as q` around a SUT call; `django_assert_num_queries`; callbacks (nested defs, lambdas) that append to or rebind names asserted later;
+- assert helpers (`assert_*`, `check_*`, `expect_*`, `self.assert*`, configured `assert-helpers`) fed with tainted data or callbacks;
+- reads of project symbols (constants/classes imported from the project) and the recorded state (`call_args`, `called`) of a mock wired into the SUT.
+
+Not reported: tests with checks but **no SUT call** (fixture-driven; SUT calls cannot be told apart) and tests whose only checks are mock assertions (that is `mock-only-assert`). Zero-assert tests keep the old logic and skip intentional "does not raise" cases: names containing `does_not_raise`, `does_not_propagate`, `must_not_raise`, `no_error`, `doesnt_raise`, `smoke`, `swallows`, `allows`, ..., or a `# must not raise` / `# should not raise` comment, or a body of `validate_` / `check_` / `ensure_` calls.
 
 Hit:
 
 ```python
 def test_without_check():
     do_something()
+
+def test_assert_unrelated_literal():
+    result = process(3)
+    expected = 4
+    assert expected == 4          # never looks at `result`
 ```
 
 Clean:
 
 ```python
-def test_ok():
-    assert result == 1
+def test_result():
+    assert process(3) == 4
 
-def _assert_ok(x):
-    assert x
+def test_persisted(account):
+    activate(1)
+    account.refresh_from_db()
+    assert account.active
 
-def test_via_helper():
-    _assert_ok(run())
+def test_created(client):
+    response = client.post("/orders/", {"sku": "a"})
+    assert response.status_code == 201
+
+def test_mutates_fixture(cart):
+    mutate(cart)
+    assert cart.touched
 ```
 
 ---
@@ -83,28 +106,40 @@ def test_ok():
 
 ## mock-only-assert
 
-**Severity:** note  
-**When:** mock asserts (`assert_called` / `assert_has_calls`) and no plain value assert, and the SUT return value is used/ignored while only mocks are checked.  
-Not flagged for procedural SUT (bare calls), constructor patches (`patch("…CamelCase")`), or boundary paths (`adapters/`, `clients/`, `*_client.py`, `orchestrator`, `admin`).
+**Severity:** note
+**Opt-in** (`--enable mock-only-assert`; data-flow rule).
+**When:** the only checks are mock assertions (`assert_called*`, `assert_has_calls`, ...) **and the asserted mock is not connected to anything the test runs**, so the assert cannot depend on the SUT.
+
+A mock is *wired* (never reported) when it is passed as an argument to any non-mock call (including nested ones), assigned onto another object (`holder.repo = m`), or - for patched/fixture/unknown mocks (`patch(...) as m`, `mock_repo`, decorator-injected) - when the test performs any real activity (a SUT or other non-framework call). On a corpus of orchestration code the observable effect of the SUT *is* the call on the injected dependency, so asserting on it is the right test.
+
+Reported: a mock the test calls itself and asserts on, or a locally built `MagicMock()` that is never passed to / attached to anything.
 
 Hit:
 
 ```python
-def test_mock_only():
-    result = compute()
-    mock.assert_called()
+def test_mock_called_by_itself():
+    notifier = MagicMock()
+    notifier.send("hello")
+    notifier.send.assert_called_once_with("hello")
+
+def test_mock_never_reaches_sut():
+    audit = MagicMock()
+    process(1)
+    audit.record.assert_called_once()
 ```
 
 Clean:
 
 ```python
-def test_ok():
-    mock.assert_called()
-    assert result == 1
+def test_injected():
+    repo = MagicMock()
+    place_order("alice", repo)
+    repo.save.assert_called_once_with("alice")
 
-def test_procedural():
-    do_side_effect()
-    mock.assert_called_once()
+def test_patched_boundary():
+    with patch("df_app.service.send_mail") as send:
+        process(1)
+    send.assert_called_once()
 ```
 
 ---
@@ -488,9 +523,10 @@ def test_len_exact():
 
 ## mock-tautology
 
-**Severity:** note  
-**When:** the assert side is the mock itself (`m()`, `m.return_value`, `m.attr`) echoing `m.return_value = X`, or `patch("mod.func", return_value=X)` then `assert mod.func() == X`.  
-Not flagged when a real SUT call returns a value that happens to equal a mock `return_value`.
+**Severity:** note
+**Opt-in** (`--enable mock-tautology`; data-flow rule).
+**When:** an assert compares a value derived **only from mock configuration** (`m.return_value = X`, then `assert m() == X`, `v = m(); assert v == X`, `assert m.return_value == X`) - it involves a configured mock and does not depend on the SUT (`depends_on_sut` false, no foreign call evaluated in the assert). A configured mock is a local `MagicMock()`/`Mock()`, a `patch(...) as` name, or a `m` / `*mock*` name; arbitrary objects whose attributes are stubbed (`throttle.cache.get.side_effect = ...`) are not mocks.
+Not flagged when the value comes from the SUT (`process(m)`, then `assert r == m.return_value`) or reads recorded state of a wired mock (`m.call_args`, `m.call_count`). Decorator `patch(..., return_value=X)` + `assert target() == X` is owned by `self-patched-sut`.
 
 Hit:
 
@@ -507,9 +543,10 @@ def test_ok():
     m.return_value = 42
     assert sut() == 7
 
-def test_sut_uses_dependency():
-    m.return_value = None
-    assert ensure.execute() is None
+def test_sut_result():
+    m.return_value = 42
+    result = process(m)
+    assert result == m.return_value
 ```
 
 ---
@@ -758,6 +795,8 @@ def test_api_contract():
 
 Off by default. Enable with `--enable ID` or `enable = ["ID"]` in `[tool.testscan]`. Configure under `[rules.<id>]`. Profile paths belong in the consumer’s `pyproject.toml` — testscan does not hardcode `app/`.
 
+The data-flow rules `no-assert`, `mock-only-assert` and `mock-tautology` are opt-in as well (documented above with the other built-in rules).
+
 ### error-contract-assert
 
 **When:** test asserts a non-2xx `status_code` / `HTTP_4xx|5xx` but does not assert the configured error-code path (default `errors[].code`).  
@@ -777,3 +816,34 @@ Off by default. Enable with `--enable ID` or `enable = ["ID"]` in `[tool.testsca
 
 **When:** a test looks RBAC/permission-related (name/fixtures cues) and performs a mutating action (HTTP POST/PUT/PATCH/DELETE or create/update/delete-style calls) but does not assert forbid (401/403 / Permission raises / forbidden signals).  
 **Options:** `name-cues`, `mutating-methods`, `forbidden-signals`.
+
+---
+
+## Overlap with ruff (flake8-pytest-style, PT)
+
+Some testscan rules duplicate checks that [ruff](https://docs.astral.sh/ruff/rules/) already ships. Only overlaps we are confident about are listed; "partial" means the ruff rule covers a subset or a different trigger.
+
+| testscan rule | ruff code | Overlap |
+|---|---|---|
+| `broad-raises` (bare `Exception`/`BaseException` without `match=`) | `PT011` (`pytest-raises-too-broad`) | yes |
+| `broad-raises` (raises body with several statements) | `PT012` (`pytest-raises-with-multiple-statements`) | yes |
+| `assert-tuple` | `F631` (`assert-tuple`) | yes |
+| `duplicate-test-name` | `F811` (`redefined-while-unused`) | partial: ruff reports only when the first definition is unused |
+| `swallowed-exception` | `S110` (`try-except-pass`), `BLE001` (`blind-except`), `SIM105` (`suppressible-exception`) | partial: different triggers (testscan flags a broad `except` without re-raise inside a test) |
+| `commented-assert` | `ERA001` (`commented-out-code`) | partial: ruff flags any commented-out code |
+
+Rules with no ruff equivalent (not listed above): `skip-without-reason`, `assert-true`, `empty-test`, `no-assert`, all mock rules and the rest of the catalog.
+
+### Default behaviour: defer to ruff
+
+When the project's ruff configuration enables `PT011`, testscan does **not** report `broad-raises` by default (both the `PT011` and `PT012` triggers of the rule are skipped together). Ruff configuration is looked up from the project root (cwd), walking up parents; per directory `.ruff.toml`, `ruff.toml`, then `pyproject.toml` with `[tool.ruff]`:
+
+- enabled: `select` / `extend-select` (in `[tool.ruff.lint]`, legacy `[tool.ruff]`, `ruff.toml` `[lint]` or top level) contains `ALL` or a prefix of `PT011` (`PT`, `PT0`, `PT01`, `PT011`);
+- not enabled when `ignore` / `extend-ignore` contains `ALL` or a prefix of `PT011` (e.g. `PT`, `PT011`).
+
+Explicitly requested rules (`--rule broad-raises`, `--enable broad-raises`) are always run. To report `broad-raises` regardless of ruff:
+
+```toml
+# .testscan.toml or [tool.testscan]
+defer_to_ruff = false   # default: true
+```

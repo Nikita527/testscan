@@ -33,6 +33,36 @@ def _is_test_class(name: str) -> bool:
     return any(fnmatch.fnmatchcase(name, p) for p in _CLASS_PATTERNS)
 
 
+_FIELD_CACHE: dict[type, tuple[str, ...]] = {}
+
+
+def _kids(node: ast.AST) -> list[ast.AST]:
+    """Child nodes (faster than ast.iter_child_nodes; expression contexts are skipped)."""
+    cls = node.__class__
+    fields = _FIELD_CACHE.get(cls)
+    if fields is None:
+        fields = _FIELD_CACHE[cls] = tuple(f for f in cls._fields if f != "ctx")
+    out: list[ast.AST] = []
+    ast_type = ast.AST
+    for f in fields:
+        v = getattr(node, f, None)
+        if v.__class__ is list:
+            for x in v:
+                if isinstance(x, ast_type):
+                    out.append(x)
+        elif isinstance(v, ast_type):
+            out.append(v)
+    return out
+
+
+def _walk(node: ast.AST):
+    """ast.walk with the same breadth-first order, without the deque / generator overhead."""
+    todo = [node]
+    for n in todo:
+        yield n
+        todo.extend(_kids(n))
+
+
 def _is_docstring_expr(stmt: ast.stmt) -> bool:
     if not isinstance(stmt, ast.Expr):
         return False
@@ -351,8 +381,8 @@ def _stdlib_names() -> frozenset[str]:
 
 def _build_parents(root: ast.AST) -> dict[int, ast.AST]:
     parents: dict[int, ast.AST] = {}
-    for node in ast.walk(root):
-        for child in ast.iter_child_nodes(node):
+    for node in _walk(root):
+        for child in _kids(node):
             parents[id(child)] = node
     return parents
 
@@ -412,7 +442,7 @@ def _value_origin(value: ast.AST | None) -> str:
 def _var_origins(fn: ast.AST, nested_ids: set[int]) -> dict[str, str]:
     """name -> origin for simple `name = expr` / `with expr as name` (first binding wins)."""
     origins: dict[str, str] = {}
-    for node in ast.walk(fn):
+    for node in _walk(fn):
         if id(node) in nested_ids:
             continue
         if isinstance(node, ast.Assign):
@@ -461,7 +491,7 @@ def _wall_call_facts(
     out: set[str] = set()
     if not facts["in_raises"]:
         loads: dict[str, list[ast.Name]] = {}
-        for n in ast.walk(fn):
+        for n in _walk(fn):
             if id(n) in nested_ids:
                 continue
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
@@ -522,9 +552,201 @@ def _walk_flow(
         cur = parent
 
 
+# --- def-use facts (consumed by rules/dataflow.go; SUT is decided in Go only) ---
+
+_SELF_NAMES = ("self", "cls")
+
+
+_MOCK_STATE_ATTRS = frozenset(
+    ("call_args", "call_args_list", "call_count", "called", "mock_calls", "method_calls")
+)
+
+
+def _self_path(node: ast.AST) -> str:
+    """Tracked root of an attribute/subscript chain: `a.b[0].c` -> "a", `self.m.x` -> "self.m"."""
+    cur: ast.AST = node
+    path = ""
+    while isinstance(cur, (ast.Attribute, ast.Subscript)):
+        if isinstance(cur, ast.Attribute) and isinstance(cur.value, ast.Name) and cur.value.id in _SELF_NAMES:
+            return f"{cur.value.id}.{cur.attr}"
+        cur = cur.value
+    if isinstance(cur, ast.Name) and cur.id not in _SELF_NAMES:
+        return cur.id
+    return path
+
+
+class _Facts:
+    """Names read, call indices and mock-state reads below an anchor node."""
+
+    __slots__ = ("reads", "calls", "mstate")
+
+    def __init__(self) -> None:
+        self.reads: set[str] = set()
+        self.calls: list[int] = []
+        self.mstate: set[str] = set()
+
+
+_EXIT = object()
+_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
+def _fact_walk(
+    fn: ast.AST,
+    call_idx: dict[int, int],
+    anchors: dict[int, _Facts],
+) -> dict[int, set[str]]:
+    """One traversal of the function body (nested defs/classes skipped).
+
+    Fills every anchor's reads / calls / mstate and returns, per call index, the
+    names loaded anywhere in that call's arguments (nested calls included).
+    `self.x` / `cls.x` is tracked as the path "self.x" (never bare "self"), so a
+    store to one attribute does not taint every self.assert*.
+    """
+    call_reads: dict[int, set[str]] = {}
+    open_anchors: list[_Facts] = []
+    stack: list[Any] = [(stmt, ()) for stmt in reversed(fn.body)]
+    while stack:
+        item = stack.pop()
+        if item is _EXIT:
+            open_anchors.pop()
+            continue
+        n, argsets = item
+        if isinstance(n, _SCOPE_NODES):
+            continue
+        col = anchors.get(id(n))
+        if col is not None:
+            open_anchors.append(col)
+            stack.append(_EXIT)
+        if isinstance(n, ast.Name):
+            if isinstance(n.ctx, ast.Load) and n.id not in _SELF_NAMES:
+                name = n.id
+                for c in open_anchors:
+                    c.reads.add(name)
+                for rs in argsets:
+                    rs.add(name)
+            continue
+        if isinstance(n, ast.Attribute):
+            if n.attr in _MOCK_STATE_ATTRS and isinstance(n.ctx, ast.Load) and open_anchors:
+                root = _self_path(n.value)
+                if root:
+                    for c in open_anchors:
+                        c.mstate.add(root)
+            v = n.value
+            if isinstance(v, ast.Name) and v.id in _SELF_NAMES:
+                if isinstance(n.ctx, ast.Load):
+                    path = f"{v.id}.{n.attr}"
+                    for c in open_anchors:
+                        c.reads.add(path)
+                    for rs in argsets:
+                        rs.add(path)
+                continue
+        elif isinstance(n, ast.Call):
+            i = call_idx.get(id(n))
+            inner = argsets
+            if i is not None:
+                for c in open_anchors:
+                    c.calls.append(i)
+                rs = call_reads.get(i)
+                if rs is None:
+                    rs = call_reads[i] = set()
+                inner = argsets + (rs,)
+            for kw in reversed(n.keywords):
+                stack.append((kw.value, inner))
+            for a in reversed(n.args):
+                stack.append((a, inner))
+            stack.append((n.func, argsets))
+            continue
+        for ch in _kids(n):
+            stack.append((ch, argsets))
+    return call_reads
+
+
+def _nested_facts(fn: ast.AST, scopes: list[ast.AST]) -> tuple[list[str], list[str], bool]:
+    """(names written by nested functions/lambdas/callbacks, nested function names, nested assert).
+
+    A callback (nested def, lambda) that appends to / stores into / rebinds an outer
+    name (`built.append(1)`, `calls["n"] += 1`, `nonlocal n`) mutates state the
+    assertions may read after the code under test invoked it. `scopes` are the
+    nested def/lambda nodes in walk order; inner scopes are merged into the
+    outermost one that contains them.
+    """
+    defs: set[str] = set()
+    has_assert = False
+    writes: set[str] = set()
+    seen: set[int] = set()
+    for scope in scopes:
+        if id(scope) in seen:
+            continue
+        local: set[str] = set()
+        declared: set[str] = set()
+        cand: list[str] = []
+        for sub in _walk(scope):
+            seen.add(id(sub))
+            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                if not isinstance(sub, ast.Lambda):
+                    defs.add(sub.name)
+                a = sub.args
+                for arg in list(a.args) + list(a.kwonlyargs) + list(getattr(a, "posonlyargs", [])):
+                    local.add(arg.arg)
+                if a.vararg:
+                    local.add(a.vararg.arg)
+                if a.kwarg:
+                    local.add(a.kwarg.arg)
+            elif isinstance(sub, ast.Name):
+                if isinstance(sub.ctx, ast.Store):
+                    local.add(sub.id)
+            elif isinstance(sub, (ast.Nonlocal, ast.Global)):
+                declared.update(sub.names)
+            elif isinstance(sub, ast.Assert):
+                has_assert = True
+            elif isinstance(sub, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                targets = sub.targets if isinstance(sub, ast.Assign) else [sub.target]
+                for tgt in targets:
+                    if isinstance(tgt, (ast.Attribute, ast.Subscript)):
+                        cand.extend(_target_roots(tgt))
+            elif isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
+                cand.extend(_target_roots(sub.func.value))
+        writes.update(declared)
+        local -= declared
+        for r in cand:
+            if r.split(".", 1)[0] not in local:
+                writes.add(r)
+    for node in _walk(fn):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Lambda):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    defs.add(tgt.id)
+    return sorted(writes), sorted(defs), has_assert
+
+
+def _target_roots(tgt: ast.AST) -> list[str]:
+    """Names written by an assignment target; attribute/subscript stores write their root."""
+    if isinstance(tgt, ast.Name):
+        return [tgt.id]
+    if isinstance(tgt, (ast.Tuple, ast.List)):
+        out: list[str] = []
+        for elt in tgt.elts:
+            out.extend(_target_roots(elt))
+        return out
+    if isinstance(tgt, ast.Starred):
+        return _target_roots(tgt.value)
+    cur: ast.AST | None = tgt
+    while isinstance(cur, (ast.Attribute, ast.Subscript)):
+        if isinstance(cur, ast.Attribute):
+            if isinstance(cur.value, ast.Name) and cur.value.id in _SELF_NAMES:
+                return [f"{cur.value.id}.{cur.attr}"]
+            cur = cur.value
+        else:
+            cur = cur.value
+    if isinstance(cur, ast.Name) and cur.id not in _SELF_NAMES:
+        return [cur.id]
+    return []
+
+
 def _collect_from_function(
     fn: ast.FunctionDef | ast.AsyncFunctionDef,
     class_name: str,
+    light: bool = False,
 ) -> dict[str, Any]:
     qual = f"{class_name}.{fn.name}" if class_name else fn.name
     end = getattr(fn, "end_lineno", None) or fn.lineno
@@ -542,24 +764,30 @@ def _collect_from_function(
     try_except: list[dict[str, Any]] = []
     assignments: list[dict[str, Any]] = []
     for_loops: list[dict[str, Any]] = []
+    call_idx: dict[int, int] = {}
+    assert_nodes: list[ast.AST] = []
+    pending_flows: list[tuple[str, int, list[str], ast.AST | None, int, list[str], int]] = []
 
     nested_node_ids: set[int] = set()
-    for node in ast.walk(fn):
+    scope_nodes: list[ast.AST] = []
+    for node in _walk(fn):
         if node is fn:
             continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            scope_nodes.append(node)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            for child in ast.walk(node):
+            for child in _walk(node):
                 nested_node_ids.add(id(child))
 
     parents = _build_parents(fn)
     bare_call_ids: set[int] = set()
-    for node in ast.walk(fn):
+    for node in _walk(fn):
         if id(node) in nested_node_ids:
             continue
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             bare_call_ids.add(id(node.value))
 
-    for node in ast.walk(fn):
+    for node in _walk(fn):
         if id(node) in nested_node_ids:
             continue
 
@@ -571,9 +799,11 @@ def _collect_from_function(
                 if msg:
                     item["text"] = f"{item['text']}, {msg}" if item["text"] else msg
             asserts.append(item)
+            assert_nodes.append(node.test)
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             cname = _call_name(node.value.func)
             if _is_mock_assert_name(cname):
+                assert_nodes.append(node.value)
                 asserts.append(
                     {
                         "kind": "mock_method",
@@ -588,6 +818,7 @@ def _collect_from_function(
             elif _is_unittest_bool_name(cname) and node.value.args:
                 arg0 = node.value.args[0]
                 if isinstance(arg0, ast.Compare):
+                    assert_nodes.append(node.value)
                     asserts.append(
                         {
                             "kind": "unittest_bool",
@@ -614,6 +845,7 @@ def _collect_from_function(
                     entry["arg_of_call"] = True
                 if cname.rsplit(".", 1)[-1] in _WALL_LEAVES:
                     entry.update(_wall_call_facts(node, fn, parents, nested_node_ids))
+                call_idx[id(node)] = len(calls)
                 calls.append(entry)
 
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -631,6 +863,41 @@ def _collect_from_function(
                             "lineno": node.lineno,
                         }
                     )
+
+        # def-use flow nodes (targets <- reads/calls of the value expression)
+        if light:
+            pass
+        elif isinstance(node, ast.Assign):
+            roots: list[str] = []
+            for tgt in node.targets:
+                roots.extend(_target_roots(tgt))
+            pending_flows.append(("assign", node.lineno, roots, node.value, -1, [], 0))
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            pending_flows.append(("assign", node.lineno, _target_roots(node.target), node.value, -1, [], 0))
+        elif isinstance(node, ast.AugAssign):
+            pending_flows.append(
+                ("assign", node.lineno, _target_roots(node.target), node.value, -1, _target_roots(node.target), 0)
+            )
+        elif isinstance(node, ast.NamedExpr):
+            pending_flows.append(("assign", node.lineno, _target_roots(node.target), node.value, -1, [], 0))
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            pending_flows.append(("for", node.lineno, _target_roots(node.target), node.iter, -1, [], 0))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            w_end = getattr(node, "end_lineno", None) or node.lineno
+            for witem in node.items:
+                w_targets = _target_roots(witem.optional_vars) if witem.optional_vars is not None else []
+                pending_flows.append(
+                    ("with", node.lineno, w_targets, witem.context_expr, -1, [], w_end)
+                )
+        elif isinstance(node, ast.Expr):
+            val = node.value
+            if isinstance(val, ast.Await):
+                val = val.value
+            if isinstance(val, ast.Call):
+                recv: list[str] = []
+                if isinstance(val.func, ast.Attribute):
+                    recv = _target_roots(val.func.value)
+                pending_flows.append(("expr", node.lineno, recv, val, id(val), recv, 0))
 
         if isinstance(node, (ast.For, ast.AsyncFor)):
             end_l = getattr(node, "end_lineno", None) or node.lineno
@@ -670,7 +937,10 @@ def _collect_from_function(
                 )
 
         if isinstance(node, ast.Try):
+            t_end = max((getattr(b, "end_lineno", None) or b.lineno) for b in node.body) if node.body else node.lineno
             for handler in node.handlers:
+                if handler.name:
+                    pending_flows.append(("except", node.lineno, [handler.name], None, -1, [], t_end))
                 bare = handler.type is None
                 catches_exc = False
                 if handler.type is not None:
@@ -678,7 +948,7 @@ def _collect_from_function(
                     catches_exc = tname in ("Exception", "BaseException") or tname.endswith(
                         ".Exception"
                     ) or tname.endswith(".BaseException")
-                has_raise = any(isinstance(s, ast.Raise) for s in ast.walk(handler))
+                has_raise = any(isinstance(s, ast.Raise) for s in _walk(handler))
                 try_except.append(
                     {
                         "bare": bare,
@@ -687,6 +957,56 @@ def _collect_from_function(
                         "lineno": handler.lineno,
                     }
                 )
+
+    flows: list[dict[str, Any]] = []
+    if not light:
+        anchors: dict[int, _Facts] = {}
+        for anode in assert_nodes:
+            anchors.setdefault(id(anode), _Facts())
+        for fl in pending_flows:
+            if fl[3] is not None:
+                anchors.setdefault(id(fl[3]), _Facts())
+        call_reads = _fact_walk(fn, call_idx, anchors)
+        for ci, rs in call_reads.items():
+            if rs:
+                calls[ci]["reads"] = sorted(rs)
+        for item, anode in zip(asserts, assert_nodes):
+            fa = anchors[id(anode)]
+            if fa.reads:
+                item["reads"] = sorted(fa.reads)
+            if fa.calls:
+                item["calls"] = sorted(fa.calls)
+            if fa.mstate:
+                item["mstate"] = sorted(fa.mstate)
+        for kind, line, targets, vnode, top_id, extra, f_end in pending_flows:
+            fa = anchors[id(vnode)] if vnode is not None else _Facts()
+            f_reads = sorted(fa.reads | set(extra)) if extra else sorted(fa.reads)
+            f_calls = sorted(fa.calls)
+            if not targets and kind not in ("expr", "with"):
+                continue
+            if not f_reads and not f_calls and kind != "except":
+                continue
+            flow: dict[str, Any] = {"kind": kind, "lineno": line}
+            if f_end:
+                flow["end_lineno"] = f_end
+            if fa.mstate:
+                flow["mstate"] = sorted(fa.mstate)
+            if targets:
+                flow["targets"] = targets
+            if f_reads:
+                flow["reads"] = f_reads
+            if f_calls:
+                flow["calls"] = f_calls
+            if kind == "expr":
+                top = call_idx.get(top_id)
+                if top is not None:
+                    flow["top"] = top
+            flows.append(flow)
+    flows.sort(key=lambda d: d["lineno"])
+    if light or not scope_nodes:
+        nested_writes, nested_defs, nested_assert = [], [], False
+    else:
+        nested_writes, nested_defs, nested_assert = _nested_facts(fn, scope_nodes)
 
     has_assert = len(asserts) > 0
     # unittest-style self.assertEqual etc. count as asserts
@@ -718,6 +1038,10 @@ def _collect_from_function(
         "try_except": try_except,
         "assignments": assignments,
         "for_loops": for_loops,
+        "flows": flows,
+        "nested_writes": nested_writes,
+        "nested_defs": nested_defs,
+        "nested_assert": nested_assert,
         "var_origins": _var_origins(fn, nested_node_ids),
         "body_norm": _body_norm(fn.body),
         "is_empty": _body_is_empty(fn.body),
@@ -731,7 +1055,7 @@ def _helper_summary(
     class_name: str,
 ) -> dict[str, Any]:
     """Lightweight helper record for one-level assert follow from tests."""
-    full = _collect_from_function(fn, class_name)
+    full = _collect_from_function(fn, class_name, light=True)
     return {
         "name": full["name"],
         "qualname": full["qualname"],
@@ -807,7 +1131,7 @@ def collect_imports(tree: ast.AST) -> list[dict[str, Any]]:
     """
     stdlib = _stdlib_names()
     imports: list[dict[str, Any]] = []
-    for node in ast.walk(tree):
+    for node in _walk(tree):
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names if alias.name]
             bindings = []

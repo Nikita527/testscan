@@ -6,9 +6,7 @@ import "github.com/Nikita527/testscan/scan"
 func Default() []scan.Rule {
 	return []scan.Rule{
 		NewEmptyTest(),
-		NewNoAssert(),
 		NewAssertTrue(),
-		NewMockOnlyAssert(),
 		NewTodoTest(),
 		NewDuplicateTestName(),
 		NewOnlyHappyPath(),
@@ -23,7 +21,6 @@ func Default() []scan.Rule {
 		NewSwallowedException(),
 		NewAssertInEmptyableLoop(),
 		NewWeakAssert(),
-		NewMockTautology(),
 		NewSleepInTest(),
 		NewWallClockInTest(),
 		NewSkipWithoutReason(),
@@ -43,6 +40,10 @@ func Optional() []scan.Rule {
 		NewMissingMirrorTest(MissingMirrorTestOpts{}),
 		NewRBACMutationGuard(RBACMutationGuardOpts{}),
 		NewNameBodyMismatch(), // 0/52 precision on mp-be corpus; opt-in
+		// Data-flow rules (SUT-dependency of asserts): opt-in until their precision is measured.
+		NewNoAssert(),
+		NewMockOnlyAssert(),
+		NewMockTautology(),
 	}
 }
 

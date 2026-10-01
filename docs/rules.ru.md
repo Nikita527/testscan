@@ -34,28 +34,51 @@ def test_ok():
 
 ## no-assert
 
-**Severity:** note  
-**Когда:** в тесте нет `assert` / `pytest.raises` / `pytest.warns` / вызова assert-хелпера.  
-Пропускает no-raise имена (`accepts`, `does_not_raise`, …) и тела из вызовов `validate_` / `check_` / `ensure_` / `assert_*`. Резолвит на 1 уровень хелперы того же модуля (`assert_*` / `_assert_*` / `check_*` или функции с assert внутри).
+**Severity:** note
+**Opt-in** (`--enable no-assert`; data-flow правило, precision на корпусе ещё не измерен).
+**Когда:** тест вызывает SUT, но **ни одна проверка не зависит от результата SUT** (data-flow, см. ниже), либо в тесте вообще нет `assert` / `pytest.raises` / `pytest.warns` / assert-хелпера.
+
+SUT = вызов кода проектного пакета (то же определение, что в `only-happy-path`) или запрос тестового клиента (`client.post(...)`, хелпер, получивший клиент). Проверка *зависит от SUT*, если читает имя, в которое попали результат или побочный эффект SUT:
+
+- присваивание, `+=`, распаковка кортежей, атрибуты/индексы, цели `for` / `with ... as` / `except ... as`, comprehensions, f-строки и вызовы с «заражённым» аргументом;
+- объекты, переданные в вызов SUT (фикстуры, фейки, в т.ч. вложенные в другие вызовы вроде `Wrap(state)`), считаются изменёнными с этого вызова;
+- состояние, наблюдаемое после SUT: `obj.refresh_from_db()`, `Model.objects.*`, вызовы фикстур и тестовых хелперов после SUT, `caplog`/`capsys`/`mailoutbox`/`tmp_path`;
+- `with pytest.raises(...)` / `with CaptureQueriesContext(...) as q` вокруг вызова SUT; `django_assert_num_queries`; колбэки (вложенные функции, lambda), меняющие имена, которые потом проверяются;
+- assert-хелперы (`assert_*`, `check_*`, `expect_*`, `self.assert*`, `assert-helpers` из конфига) с «заражёнными» аргументами или колбэками;
+- чтение проектных символов (константы/классы из проекта) и записанное состояние (`call_args`, `called`) мока, подключённого к SUT.
+
+Не флагает: тесты с проверками, но **без вызова SUT** (на фикстурах; SUT-вызов не определить) и тесты, где проверяются только моки (это `mock-only-assert`). Тесты вообще без assert — прежняя логика; намеренные «не должно падать» пропускаются: имена с `does_not_raise`, `does_not_propagate`, `must_not_raise`, `no_error`, `doesnt_raise`, `smoke`, `swallows`, `allows`, ..., комментарий `# must not raise` / `# should not raise`, либо тело из вызовов `validate_` / `check_` / `ensure_`.
 
 Hit:
 
 ```python
 def test_without_check():
     do_something()
+
+def test_assert_unrelated_literal():
+    result = process(3)
+    expected = 4
+    assert expected == 4          # `result` не проверяется
 ```
 
 Clean:
 
 ```python
-def test_ok():
-    assert result == 1
+def test_result():
+    assert process(3) == 4
 
-def _assert_ok(x):
-    assert x
+def test_persisted(account):
+    activate(1)
+    account.refresh_from_db()
+    assert account.active
 
-def test_via_helper():
-    _assert_ok(run())
+def test_created(client):
+    response = client.post("/orders/", {"sku": "a"})
+    assert response.status_code == 201
+
+def test_mutates_fixture(cart):
+    mutate(cart)
+    assert cart.touched
 ```
 
 ---
@@ -83,28 +106,40 @@ def test_ok():
 
 ## mock-only-assert
 
-**Severity:** note  
-**Когда:** есть mock-assert (`assert_called` / `assert_has_calls`) и нет обычного value-assert, при этом результат SUT используется/игнорируется, а проверяются только моки.  
-Не флагает процедурный SUT (bare-вызовы), патч конструктора (`patch("…CamelCase")`) и boundary-пути (`adapters/`, `clients/`, `*_client.py`, `orchestrator`, `admin`).
+**Severity:** note
+**Opt-in** (`--enable mock-only-assert`; data-flow правило).
+**Когда:** проверяются только mock-вызовы (`assert_called*`, `assert_has_calls`, ...) **и мок, на котором стоит assert, не связан ни с чем, что выполняет тест** - assert не может зависеть от SUT.
+
+Мок *подключён* (не репортится), если он передан аргументом в любой не-mock вызов (в т.ч. вложенный), присвоен атрибуту другого объекта (`holder.repo = m`) или - для patch/фикстурных/неизвестных моков (`patch(...) as m`, `mock_repo`, декоратор) - если в тесте есть реальная активность (вызов SUT или другой не-framework вызов). В оркестрирующем коде наблюдаемый эффект SUT *и есть* вызов внедрённой зависимости, поэтому такой assert корректен.
+
+Репортится: мок, который тест сам вызывает и сам проверяет, либо локальный `MagicMock()`, который никуда не передан и ни к чему не прикреплён.
 
 Hit:
 
 ```python
-def test_mock_only():
-    result = compute()
-    mock.assert_called()
+def test_mock_called_by_itself():
+    notifier = MagicMock()
+    notifier.send("hello")
+    notifier.send.assert_called_once_with("hello")
+
+def test_mock_never_reaches_sut():
+    audit = MagicMock()
+    process(1)
+    audit.record.assert_called_once()
 ```
 
 Clean:
 
 ```python
-def test_ok():
-    mock.assert_called()
-    assert result == 1
+def test_injected():
+    repo = MagicMock()
+    place_order("alice", repo)
+    repo.save.assert_called_once_with("alice")
 
-def test_procedural():
-    do_side_effect()
-    mock.assert_called_once()
+def test_patched_boundary():
+    with patch("df_app.service.send_mail") as send:
+        process(1)
+    send.assert_called_once()
 ```
 
 ---
@@ -488,9 +523,10 @@ def test_len_exact():
 
 ## mock-tautology
 
-**Severity:** note  
-**Когда:** сторона assert — сам мок (`m()`, `m.return_value`, `m.attr`) и она повторяет `m.return_value = X`, либо `patch("mod.func", return_value=X)` и затем `assert mod.func() == X`.  
-Не флагает, когда реальный вызов SUT возвращает значение, совпадающее с `return_value` зависимости.
+**Severity:** note
+**Opt-in** (`--enable mock-tautology`; data-flow правило).
+**Когда:** assert сравнивает значение, **выведенное только из конфигурации мока** (`m.return_value = X`, затем `assert m() == X`, `v = m(); assert v == X`, `assert m.return_value == X`) - в нём участвует настроенный мок, и он не зависит от SUT (`depends_on_sut` false, в assert нет чужих вызовов). Настроенный мок - локальный `MagicMock()`/`Mock()`, имя из `patch(...) as` либо `m` / `*mock*`; обычные объекты с подменёнными атрибутами (`throttle.cache.get.side_effect = ...`) моками не считаются.
+Не флагает, когда значение пришло из SUT (`process(m)`, затем `assert r == m.return_value`) или читается записанное состояние подключённого мока (`m.call_args`, `m.call_count`). Декораторный `patch(..., return_value=X)` + `assert target() == X` относится к `self-patched-sut`.
 
 Hit:
 
@@ -507,9 +543,10 @@ def test_ok():
     m.return_value = 42
     assert sut() == 7
 
-def test_sut_uses_dependency():
-    m.return_value = None
-    assert ensure.execute() is None
+def test_sut_result():
+    m.return_value = 42
+    result = process(m)
+    assert result == m.return_value
 ```
 
 ---
@@ -758,6 +795,8 @@ def test_api_contract():
 
 Выключены по умолчанию. Включение: `--enable ID` или `enable = ["ID"]`. Опции — в `[rules.<id>]`. Пути профиля только в `pyproject.toml` потребителя.
 
+Data-flow правила `no-assert`, `mock-only-assert` и `mock-tautology` тоже opt-in (описаны выше вместе со встроенными).
+
 ### error-contract-assert
 
 **Когда:** тест проверяет non-2xx `status_code` / `HTTP_4xx|5xx`, но не assert’ит путь кода ошибки (дефолт `errors[].code`).  
@@ -777,3 +816,35 @@ def test_api_contract():
 
 **Когда:** тест похож на RBAC/permission и мутирует (POST/PUT/PATCH/DELETE или create/update/delete), но не проверяет запрет (401/403 / Permission / forbidden).  
 **Опции:** `name-cues`, `mutating-methods`, `forbidden-signals`.
+
+
+---
+
+## Пересечение с ruff (flake8-pytest-style, PT)
+
+Часть правил testscan дублирует проверки, которые уже есть в [ruff](https://docs.astral.sh/ruff/rules/). Перечислены только пересечения, в которых мы уверены; «partial» — ruff покрывает лишь подмножество или другой триггер.
+
+| правило testscan | код ruff | Пересечение |
+|---|---|---|
+| `broad-raises` (голый `Exception`/`BaseException` без `match=`) | `PT011` (`pytest-raises-too-broad`) | да |
+| `broad-raises` (в теле raises несколько операторов) | `PT012` (`pytest-raises-with-multiple-statements`) | да |
+| `assert-tuple` | `F631` (`assert-tuple`) | да |
+| `duplicate-test-name` | `F811` (`redefined-while-unused`) | partial: ruff срабатывает, только если первое определение не использовано |
+| `swallowed-exception` | `S110` (`try-except-pass`), `BLE001` (`blind-except`), `SIM105` (`suppressible-exception`) | partial: другие триггеры (testscan ловит широкий `except` без re-raise внутри теста) |
+| `commented-assert` | `ERA001` (`commented-out-code`) | partial: ruff ловит любой закомментированный код |
+
+Без аналога в ruff (в таблице не перечислены): `skip-without-reason`, `assert-true`, `empty-test`, `no-assert`, все mock-правила и остальной каталог.
+
+### Поведение по умолчанию: уступаем ruff
+
+Если в конфигурации ruff проекта включён `PT011`, testscan по умолчанию **не** сообщает `broad-raises` (оба триггера правила — `PT011` и `PT012` — пропускаются вместе). Конфиг ruff ищется от корня проекта (cwd) вверх по родителям; в каждой директории по порядку `.ruff.toml`, `ruff.toml`, затем `pyproject.toml` с `[tool.ruff]`:
+
+- включено: `select` / `extend-select` (в `[tool.ruff.lint]`, legacy `[tool.ruff]`, `[lint]` или верхнем уровне `ruff.toml`) содержит `ALL` или префикс `PT011` (`PT`, `PT0`, `PT01`, `PT011`);
+- не включено, если `ignore` / `extend-ignore` содержит `ALL` или префикс `PT011` (например `PT`, `PT011`).
+
+Явно запрошенные правила (`--rule broad-raises`, `--enable broad-raises`) выполняются всегда. Чтобы получать `broad-raises` независимо от ruff:
+
+```toml
+# .testscan.toml или [tool.testscan]
+defer_to_ruff = false   # по умолчанию: true
+```

@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/Nikita527/testscan/internal/parse"
@@ -28,6 +29,8 @@ func (noAssert) Check(file scan.File) []scan.Finding {
 
 var noRaiseNamePhrases = []string{
 	"does_not_raise", "no_raise", "doesnt_raise", "no_op",
+	"does_not_propagate", "must_not_raise", "should_not_raise", "no_error", "no_errors",
+	"no_exception", "smoke",
 }
 
 // noRaiseNameVerbsEdge — first/last token or name prefix/suffix only
@@ -38,7 +41,7 @@ var noRaiseNameVerbsEdge = []string{
 
 // noRaiseNameVerbsMid — intentional no-raise verbs matched on any underscore token.
 var noRaiseNameVerbsMid = []string{
-	"swallows", "ignores", "skips", "allows", "tolerates",
+	"swallows", "ignores", "skips", "allows", "allow", "allowed", "tolerates",
 }
 
 var implicitCheckPrefixes = []string{
@@ -122,21 +125,49 @@ func isImplicitNoRaiseBody(t parse.TestFunc) bool {
 	return true
 }
 
+// noAssertFromAST implements the data-flow semantics:
+//
+//   - the test has no assert / raises / assert helper at all: reported (old
+//     behaviour) unless it is an intentional "does not raise" test;
+//   - the test has checks and calls the SUT, but none of them depends on the SUT
+//     result (AnalyzeDataflow): reported;
+//   - the test has checks but never calls the SUT (fixture-driven, helper-driven,
+//     pure-literal): NOT reported — SUT calls cannot be told apart, so no claim;
+//   - tests whose only checks are mock assertions belong to mock-only-assert.
 func noAssertFromAST(file scan.File, model parse.Model) []scan.Finding {
 	var findings []scan.Finding
+	ctx := NewSUTContext(file, model)
 	for _, t := range model.Tests {
 		if t.IsEmpty {
-			continue
-		}
-		if testHasAssertOrHelper(t, file.AssertHelpers, model) {
 			continue
 		}
 		q := t.QualName
 		if q == "" {
 			q = t.Name
 		}
-		if isNoRaiseTestName(q) || isImplicitNoRaiseBody(t) {
-			// Legitimate no-raise / validate_* style — not a finding.
+		if !testHasAssertOrHelper(t, file.AssertHelpers, model) && !hasQueryCountCheck(t) && !t.NestedAssert {
+			if isNoRaiseTestName(q) || isImplicitNoRaiseBody(t) || hasNoRaiseComment(file, t) {
+				// Legitimate no-raise / validate_* style — not a finding.
+				continue
+			}
+			findings = append(findings, scan.Finding{
+				File:     file.Path,
+				Line:     t.Lineno,
+				Rule:     "no-assert",
+				Severity: "note",
+				Message:  "no assert found in test: " + q + "; if intentional, use does_not_raise() or rename (e.g. test_…_does_not_raise_…)",
+				QualName: q,
+			})
+			continue
+		}
+		if hasMockAssert(t) && !hasNonMockAssert(t) {
+			continue // mock-only-assert territory
+		}
+		df := AnalyzeDataflow(file, model, ctx, t)
+		if !df.NoDependentCheck() {
+			continue
+		}
+		if isNoRaiseTestName(q) || hasNoRaiseComment(file, t) {
 			continue
 		}
 		findings = append(findings, scan.Finding{
@@ -144,11 +175,36 @@ func noAssertFromAST(file scan.File, model parse.Model) []scan.Finding {
 			Line:     t.Lineno,
 			Rule:     "no-assert",
 			Severity: "note",
-			Message:  "no assert found in test: " + q + "; if intentional, use does_not_raise() or rename (e.g. test_…_does_not_raise_…)",
+			Message:  "no assert depends on the code under test in: " + q + "; asserts check data unrelated to the SUT call result or its side effects",
 			QualName: q,
 		})
 	}
 	return findings
+}
+
+var reNoRaiseComment = regexp.MustCompile(
+	`(?i)#.*\b(?:must\s*not|should\s*not|shouldn'?t|mustn'?t|does\s*not|doesn'?t|do\s*not|don'?t|never)\s+(?:raise|throw|fail|crash|blow\s*up)`)
+
+// hasNoRaiseComment: a comment inside the test saying it must/should not raise.
+func hasNoRaiseComment(file scan.File, t parse.TestFunc) bool {
+	if len(file.Content) == 0 {
+		return false
+	}
+	lines := strings.Split(string(file.Content), "\n")
+	start := t.Lineno - 1
+	if start < 0 {
+		start = 0
+	}
+	end := t.EndLineno
+	if end <= 0 || end > len(lines) {
+		end = len(lines)
+	}
+	for i := start; i < end && i < len(lines); i++ {
+		if reNoRaiseComment.MatchString(lines[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 func noAssertHeuristic(file scan.File) []scan.Finding {

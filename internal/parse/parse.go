@@ -117,6 +117,16 @@ type TestFunc struct {
 	TryExcept   []TryExcept  `json:"try_except"`
 	Assignments []Assignment `json:"assignments"`
 	ForLoops    []ForLoop    `json:"for_loops"`
+	// Flows are def-use facts (statement order): which names a statement writes,
+	// which names / calls its value expression reads. Rules combine them with the
+	// SUT definition (rules/sut.go) to decide what depends on the SUT result.
+	Flows []Flow `json:"flows,omitempty"`
+	// NestedWrites are outer names mutated inside nested functions / lambdas
+	// (callbacks the code under test may invoke); NestedDefs are nested function
+	// names; NestedAssert is true when a nested function contains an assert.
+	NestedWrites []string `json:"nested_writes,omitempty"`
+	NestedDefs   []string `json:"nested_defs,omitempty"`
+	NestedAssert bool     `json:"nested_assert,omitempty"`
 	// VarOrigins maps a local name to the callee it was first assigned from,
 	// "<literal>" for literal values or "<other>".
 	VarOrigins map[string]string `json:"var_origins,omitempty"`
@@ -124,6 +134,27 @@ type TestFunc struct {
 	IsEmpty    bool              `json:"is_empty"`
 	HasAssert  bool              `json:"has_assert"`
 	HasRaises  bool              `json:"has_raises"`
+	// HasSUTCall and AnySUTDependentAssert are NOT emitted by the Python helper:
+	// rules.AnnotateDataflow fills them (SUT is decided in Go) on a copy of the test.
+	HasSUTCall            bool `json:"has_sut_call,omitempty"`
+	AnySUTDependentAssert bool `json:"any_sut_dependent_assert,omitempty"`
+}
+
+// Flow is one statement's def-use fact. Kind: assign | for | with | except | expr
+// (bare call statement). with / except carry EndLineno (end of the block / try body). Targets are the names written (attribute/subscript stores write their
+// root; `self.x` is tracked as "self.x"); Reads are names loaded by the value
+// expression; Calls index TestFunc.Calls for every call inside it; Top is the
+// statement's own call for kind expr.
+type Flow struct {
+	Kind    string   `json:"kind"`
+	Lineno  int      `json:"lineno"`
+	EndLine int      `json:"end_lineno,omitempty"`
+	Targets []string `json:"targets,omitempty"`
+	Reads   []string `json:"reads,omitempty"`
+	Calls   []int    `json:"calls,omitempty"`
+	// MState names read through a mock-recorded attribute (m.call_args, m.called).
+	MState []string `json:"mstate,omitempty"`
+	Top    *int     `json:"top,omitempty"`
 }
 
 // Assert kinds: compare | isinstance | truthy | mock_method | tuple | unittest_bool | other
@@ -135,6 +166,13 @@ type Assert struct {
 	Right       string `json:"right"`
 	LeftIsCall  bool   `json:"left_is_call"`
 	RightIsCall bool   `json:"right_is_call"`
+	// Reads are the names the checked expression loads; Calls index TestFunc.Calls.
+	Reads  []string `json:"reads,omitempty"`
+	Calls  []int    `json:"calls,omitempty"`
+	MState []string `json:"mstate,omitempty"`
+	// DependsOnSUT is filled by rules.AnnotateDataflow (not by the helper): the
+	// checked value derives from a SUT call result or from state observed after it.
+	DependsOnSUT bool `json:"depends_on_sut"`
 }
 
 type Call struct {
@@ -146,6 +184,8 @@ type Call struct {
 	RecvLiteral bool `json:"recv_literal,omitempty"`
 	// ArgOfCall: the call's value is an argument of an enclosing call.
 	ArgOfCall bool `json:"arg_of_call,omitempty"`
+	// Reads are the names loaded directly in the call's arguments (nested calls own theirs).
+	Reads []string `json:"reads,omitempty"`
 	// Wall-clock facts (only for now/today/utcnow calls): argument count,
 	// where the value flows ("assert"|"model_arg"|"call_arg"), `.astimezone()`-style
 	// awareness and whether it sits in a pytest.raises body.

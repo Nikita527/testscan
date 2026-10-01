@@ -14,9 +14,9 @@ import (
 
 // ---------------------------------------------------------------------------
 // SUT (system under test) definition: the ONE place that decides which calls
-// in a test exercise project code. Reused by only-happy-path today; the
-// data-flow milestone (depends_on_sut for no-assert / mock-only-assert /
-// mock-tautology) must call SUTContext.Calls instead of re-deriving it.
+// in a test exercise project code. Used by only-happy-path (Calls) and by the
+// data-flow rules no-assert / mock-only-assert / mock-tautology
+// (IsDataflowSUT = the same classify + test-client requests, rules/dataflow.go).
 //
 // A call is a SUT call when ALL hold:
 //
@@ -121,6 +121,81 @@ func (c *SUTContext) Calls(t parse.TestFunc) []SUTCall {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Lineno < out[j].Lineno })
 	return out
+}
+
+// httpVerbLeaves are test-client methods (Django / DRF / Starlette / Flask clients).
+var httpVerbLeaves = map[string]bool{
+	"get": true, "post": true, "put": true, "patch": true, "delete": true,
+	"head": true, "options": true, "request": true, "generic": true, "trace": true,
+}
+
+// IsClientCall reports a request issued through a test client
+// (`client.post(...)`, `self.client.get(...)`, `api_client.put(...)`). The data-flow
+// rules treat it as a SUT call: the handler under test runs behind it. It is NOT part
+// of Calls (only-happy-path keeps its stricter project-import definition).
+func (c *SUTContext) IsClientCall(call parse.Call) bool {
+	if call.RecvLiteral || !httpVerbLeaves[leafName(call.Name)] {
+		return false
+	}
+	segs := strings.Split(call.Name, ".")
+	for _, seg := range segs[:len(segs)-1] {
+		if strings.Contains(strings.ToLower(seg), "client") {
+			return true
+		}
+	}
+	return false
+}
+
+// IsDataflowSUT is the SUT predicate of the data-flow rules: a project SUT call
+// (classify), a test-client request, or a (test-local) helper that is handed the
+// test client (`_copy(authenticated_api_client, 7)`), which issues the request.
+func (c *SUTContext) IsDataflowSUT(t parse.TestFunc, call parse.Call) bool {
+	if _, ok := c.classify(t, call); ok {
+		return true
+	}
+	if c.IsClientCall(call) {
+		return true
+	}
+	if isFrameworkOrMockCall(call.Name) || call.RecvLiteral {
+		return false
+	}
+	for _, r := range call.Reads {
+		if !strings.Contains(strings.ToLower(r), "client") {
+			continue
+		}
+		if containsString(t.Fixtures, r) || strings.HasPrefix(r, "self.") {
+			return true
+		}
+	}
+	return false
+}
+
+// IsProjectName reports whether name is bound by an absolute import of a project
+// package (a project function, class or constant read directly by a test).
+func (c *SUTContext) IsProjectName(name string) bool {
+	b, ok := c.bindings[name]
+	if !ok || c.level[name] > 0 || b.Stdlib || b.Module == "" {
+		return false
+	}
+	top, _ := firstSegment(b.Module)
+	return !neverSUTPackages[top] && c.isProjectPackage(top)
+}
+
+// IsTestSupportName reports whether root names test-local code: a module-level
+// def of the test file, or a name imported from tests/conftest or relatively.
+func (c *SUTContext) IsTestSupportName(root string) bool {
+	if c.defs[root] {
+		return true
+	}
+	b, ok := c.bindings[root]
+	if !ok {
+		return false
+	}
+	if c.level[root] > 0 {
+		return true
+	}
+	top, _ := firstSegment(b.Module)
+	return top == "tests" || top == "test" || top == "conftest" || top == "testing"
 }
 
 func firstSegment(name string) (head, rest string) {

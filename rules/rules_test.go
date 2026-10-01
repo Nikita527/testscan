@@ -26,7 +26,7 @@ func TestCorpus(t *testing.T) {
 		{"empty-test", rules.NewEmptyTest(), "testdata/empty", "test_empty.py", "empty-test", 1},
 		{"no-assert", rules.NewNoAssert(), "testdata/no_assert", "test_no_assert.py", "no-assert", 1},
 		{"assert-true", rules.NewAssertTrue(), "testdata/assert_true", "test_assert_true.py", "assert-true", 2},
-		{"mock-only-assert", rules.NewMockOnlyAssert(), "testdata/mock_only_assert", "test_mock_only.py", "mock-only-assert", 3},
+		{"mock-only-assert", rules.NewMockOnlyAssert(), "testdata/mock_only_assert", "test_mock_only.py", "mock-only-assert", 7},
 		{"todo-test", rules.NewTodoTest(), "testdata/todo", "test_todo.py", "todo-test", 2},
 		{"duplicate-test-name", rules.NewDuplicateTestName(), "testdata/duplicate_test_name", "test_dup.py", "duplicate-test-name", 5},
 		{"only-happy-path", rules.NewOnlyHappyPath(), "testdata/only_happy_path", "test_happy.py", "only-happy-path", 4},
@@ -107,8 +107,8 @@ func TestCorpus(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	got := rules.Default()
-	if len(got) != 27 {
-		t.Fatalf("got %d rules, want 27", len(got))
+	if len(got) != 24 {
+		t.Fatalf("got %d rules, want 24", len(got))
 	}
 }
 
