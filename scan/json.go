@@ -7,13 +7,18 @@ import (
 
 // JSONSummary is the health / counts block for --format json.
 type JSONSummary struct {
-	HealthScore  int    `json:"health_score"`
-	Grade        string `json:"grade"`
-	Errors       int    `json:"errors"`
-	Warnings     int    `json:"warnings"`
-	Notes        int    `json:"notes"`
-	Files        int    `json:"files"`
-	ParseSkipped int    `json:"parse_skipped"`
+	HealthScore int    `json:"health_score"`
+	Grade       string `json:"grade"`
+	// GradeDeprecated is always true; prefer confirmed_* over health_score/grade.
+	GradeDeprecated  bool    `json:"grade_deprecated"`
+	ConfirmedCount   int     `json:"confirmed_count"`
+	ConfirmedDensity float64 `json:"confirmed_density"`
+	Trend            *Trend  `json:"trend,omitempty"`
+	Errors           int     `json:"errors"`
+	Warnings         int     `json:"warnings"`
+	Notes            int     `json:"notes"`
+	Files            int     `json:"files"`
+	ParseSkipped     int     `json:"parse_skipped"`
 	// WarningsInGrade / WarningsIgnored explain Health Score vs raw warning count.
 	WarningsInGrade int `json:"warnings_in_grade"`
 	WarningsIgnored int `json:"warnings_ignored"`
@@ -38,15 +43,19 @@ func WriteJSON(w io.Writer, findings []Finding, score Score) error {
 	}
 	report := JSONReport{
 		Summary: JSONSummary{
-			HealthScore:     score.Value,
-			Grade:           score.Grade,
-			Errors:          score.Errors,
-			Warnings:        score.Warnings,
-			Notes:           score.Notes,
-			Files:           score.Files,
-			ParseSkipped:    score.ParseSkipped,
-			WarningsInGrade: score.WarningsInGrade,
-			WarningsIgnored: score.WarningsIgnored,
+			HealthScore:      score.Value,
+			Grade:            score.Grade,
+			GradeDeprecated:  true,
+			ConfirmedCount:   score.ConfirmedCount,
+			ConfirmedDensity: score.ConfirmedDensity,
+			Trend:            score.Trend,
+			Errors:           score.Errors,
+			Warnings:         score.Warnings,
+			Notes:            score.Notes,
+			Files:            score.Files,
+			ParseSkipped:     score.ParseSkipped,
+			WarningsInGrade:  score.WarningsInGrade,
+			WarningsIgnored:  score.WarningsIgnored,
 		},
 		Findings: out,
 	}

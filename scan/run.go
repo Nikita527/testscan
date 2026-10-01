@@ -101,8 +101,10 @@ type Options struct {
 
 // ProjectInfo is passed to ProjectRule.CheckProject after per-file checks.
 type ProjectInfo struct {
-	PathRoot     string
-	CoveragePath string
+	PathRoot         string
+	CoveragePath     string
+	Exclude          []string
+	RespectGitignore bool
 }
 
 // ProjectRule is an optional extension for a whole-project pass (e.g. coverage).
@@ -211,8 +213,10 @@ func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
 			continue
 		}
 		extra := pr.CheckProject(ctx, ProjectInfo{
-			PathRoot:     pathRoot,
-			CoveragePath: opts.CoveragePath,
+			PathRoot:         pathRoot,
+			CoveragePath:     opts.CoveragePath,
+			Exclude:          opts.Exclude,
+			RespectGitignore: opts.RespectGitignore,
 		})
 		for _, f := range extra {
 			if _, ok := contents[f.File]; !ok {

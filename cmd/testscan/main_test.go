@@ -38,23 +38,27 @@ func TestExitCode(t *testing.T) {
 
 func TestParseArgs(t *testing.T) {
 	cases := []struct {
-		name         string
-		argv         []string
-		wantRoots    []string
-		wantFormat   string
-		wantFailOn   string
-		wantOnly     []string
-		wantDisable  []string
-		wantBaseline string
-		wantCoverage string
-		wantDiff     string
-		wantFocus    bool
-		wantWorkers  int
-		wantWorkersS bool
-		wantFailOnS  bool
-		wantOutput   string
-		wantOpen     bool
-		wantErr      bool
+		name          string
+		argv          []string
+		wantRoots     []string
+		wantFormat    string
+		wantFailOn    string
+		wantOnly      []string
+		wantEnable    []string
+		wantDisable   []string
+		wantBaseline  string
+		wantCompare   string
+		wantShowGrade bool
+		wantCoverage  string
+		wantDiff      string
+		wantFocus     bool
+		wantShowLP    bool
+		wantWorkers   int
+		wantWorkersS  bool
+		wantFailOnS   bool
+		wantOutput    string
+		wantOpen      bool
+		wantErr       bool
 	}{
 		{
 			name:        "m1_flags",
@@ -133,6 +137,24 @@ func TestParseArgs(t *testing.T) {
 			wantFocus:  true,
 		},
 		{
+			name:       "enable_and_show_low_precision",
+			argv:       []string{"path", "--enable", "error-contract-assert", "--show-low-precision"},
+			wantRoots:  []string{"path"},
+			wantFormat: "text",
+			wantFailOn: "error",
+			wantEnable: []string{"error-contract-assert"},
+			wantShowLP: true,
+		},
+		{
+			name:          "compare_and_show_grade",
+			argv:          []string{"path", "--compare", "prev.json", "--show-grade"},
+			wantRoots:     []string{"path"},
+			wantFormat:    "text",
+			wantFailOn:    "error",
+			wantCompare:   "prev.json",
+			wantShowGrade: true,
+		},
+		{
 			name:       "format_codequality",
 			argv:       []string{"path", "--format", "codequality"},
 			wantRoots:  []string{"path"},
@@ -189,11 +211,20 @@ func TestParseArgs(t *testing.T) {
 			if !strSliceEq(got.only, tc.wantOnly) {
 				t.Fatalf("only=%v, want %v", got.only, tc.wantOnly)
 			}
+			if !strSliceEq(got.enable, tc.wantEnable) {
+				t.Fatalf("enable=%v, want %v", got.enable, tc.wantEnable)
+			}
 			if !strSliceEq(got.disable, tc.wantDisable) {
 				t.Fatalf("disable=%v, want %v", got.disable, tc.wantDisable)
 			}
 			if got.baseline != tc.wantBaseline {
 				t.Fatalf("baseline=%q, want %q", got.baseline, tc.wantBaseline)
+			}
+			if got.compare != tc.wantCompare {
+				t.Fatalf("compare=%q, want %q", got.compare, tc.wantCompare)
+			}
+			if got.showGrade != tc.wantShowGrade {
+				t.Fatalf("showGrade=%v, want %v", got.showGrade, tc.wantShowGrade)
 			}
 			if got.coverage != tc.wantCoverage {
 				t.Fatalf("coverage=%q, want %q", got.coverage, tc.wantCoverage)
@@ -203,6 +234,9 @@ func TestParseArgs(t *testing.T) {
 			}
 			if got.focus != tc.wantFocus {
 				t.Fatalf("focus=%v, want %v", got.focus, tc.wantFocus)
+			}
+			if got.showLowPrecision != tc.wantShowLP {
+				t.Fatalf("showLowPrecision=%v, want %v", got.showLowPrecision, tc.wantShowLP)
 			}
 			if got.workers != tc.wantWorkers || got.workersSet != tc.wantWorkersS {
 				t.Fatalf("workers=%d set=%v, want %d set=%v", got.workers, got.workersSet, tc.wantWorkers, tc.wantWorkersS)
@@ -262,6 +296,21 @@ func TestApplyConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("enable_union_and_show_low_precision", func(t *testing.T) {
+		args := cliArgs{failOn: "error", enable: []string{"rbac-mutation-guard"}, roots: []string{"."}}
+		cfg := config.Config{
+			Enable:           []string{"error-contract-assert"},
+			ShowLowPrecision: true,
+		}
+		got := applyConfig(args, cfg)
+		if !strSliceEq(got.enable, []string{"error-contract-assert", "rbac-mutation-guard"}) {
+			t.Fatalf("enable=%v", got.enable)
+		}
+		if !got.showLowPrecision {
+			t.Fatal("want showLowPrecision from config")
+		}
+	})
+
 	t.Run("no_config_roots_default_dot", func(t *testing.T) {
 		got := applyConfig(cliArgs{failOn: "error"}, config.Config{})
 		if !strSliceEq(got.roots, []string{"."}) {
@@ -286,22 +335,35 @@ func TestWriteFindings_TextAndJSONScore(t *testing.T) {
 	findings := []scan.Finding{{
 		File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty",
 	}}
+	score := scan.CalculateScore(findings, 5)
 	var textBuf strings.Builder
-	if err := writeFindings(&textBuf, findings, 5, "text"); err != nil {
+	if err := writeFindings(&textBuf, findings, score, "text"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(textBuf.String(), "Health Score:") {
-		t.Fatalf("text missing score: %q", textBuf.String())
+	if !strings.Contains(textBuf.String(), "Confirmed:") {
+		t.Fatalf("text missing confirmed: %q", textBuf.String())
+	}
+	if strings.Contains(textBuf.String(), "Health Score:") {
+		t.Fatalf("text must not show Health Score without ShowGrade: %q", textBuf.String())
+	}
+
+	score.ShowGrade = true
+	var textGrade strings.Builder
+	if err := writeFindings(&textGrade, findings, score, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(textGrade.String(), "Health Score:") || !strings.Contains(textGrade.String(), "[deprecated]") {
+		t.Fatalf("want deprecated Health Score: %q", textGrade.String())
 	}
 
 	var jsonBuf strings.Builder
-	if err := writeFindings(&jsonBuf, findings, 5, "json"); err != nil {
+	if err := writeFindings(&jsonBuf, findings, score, "json"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(jsonBuf.String(), `"summary"`) || !strings.Contains(jsonBuf.String(), `"health_score"`) {
-		t.Fatalf("json missing summary: %s", jsonBuf.String())
-	}
-	if !strings.Contains(jsonBuf.String(), `"findings"`) {
-		t.Fatal("json missing findings key")
+	out := jsonBuf.String()
+	for _, want := range []string{`"summary"`, `"health_score"`, `"confirmed_count"`, `"confirmed_density"`, `"grade_deprecated"`, `"findings"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("json missing %s: %s", want, out)
+		}
 	}
 }

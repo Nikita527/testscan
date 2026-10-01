@@ -39,8 +39,15 @@ testscan tests --diff origin/main --focus --format html --open
 testscan tests --format json --fail-on never > .testscan/baseline.json
 testscan tests --diff origin/main --baseline .testscan/baseline.json --focus --fail-on warning
 
+# Тренд vs вчерашний JSON (или --baseline как точка сравнения)
+testscan tests --format json -o .testscan/prev.json --fail-on never
+testscan tests --compare .testscan/prev.json --format text
+
 # Полный скан без --focus (триаж низкоточных эвристик / notes)
 testscan path/to/tests --format html --open
+
+# Opt-in project-rules (DRF / API)
+testscan tests --enable error-contract-assert --enable raises-without-check
 
 testscan path/to/tests --format text --fail-on error
 testscan path/to/tests --format json --fail-on never
@@ -86,18 +93,24 @@ time ./testscan.exe /c/Dev/mp-be/tests --fail-on never >/dev/null
 ```
 
 Флаги:
-- `--format text|json|sarif|html|codequality` (default: `text`) — `html` — самодостаточный интерактивный отчёт (кольцо Health Score + фильтры **error / warning / note / tool error**; поиск; группировка rule → file по **precision desc**; фрагменты кода ±5 строк; ссылки на twin у near-duplicate). Notes и tool errors по умолчанию сняты — первый экран = trusted warnings. `codequality` — отчёт GitLab Code Quality (Code Climate JSON). Пишите через `-o`/`--output` или stdout (`> report.html`).
-- `text` заканчивается строкой `Health Score: N (G)`; `json` = `{"summary":{health_score,grade,errors,warnings,notes,files,parse_skipped,warnings_in_grade,warnings_ignored},"findings":[…]}` (breaking относительно голого массива — для baseline/CI берите `findings`). Health Score взвешивает **error+warning** по precision правила (precision < `MinPrecisionForGrade` = 0.15 → вес 0; средняя — пропорционально); **notes** только в UI (без penalty). **`parse-error` / сбои AST** — **tool errors**: в `parse_skipped` и отдельный чип в HTML — **не** влияют на grade.
+- `--format text|json|sarif|html|codequality` (default: `text`) — `html` — самодостаточный отчёт (в hero: confirmed density + trend; кольцо Health Score по `--show-grade`; фильтры **error / warning / note / tool error**; поиск; по умолчанию **файл → находки**, переключатель By rule; ссылки `vscode://file/…:line`; повторы `×N`; фрагменты ±5 строк; twin у near-duplicate). Notes и tool errors по умолчанию сняты. `codequality` — GitLab Code Quality. Пишите через `-o`/`--output` или stdout.
+- `text` заканчивается `Confirmed: N (density X.XX)` (+ trend); `json` = `{"summary":{confirmed_count,confirmed_density,trend?,health_score,grade,grade_deprecated,…},"findings":[…]}`. **Confirmed** — precision ≥ `MinPrecisionForDisplay` (0.3) после baseline / display-фильтра. **Health Score** (A–F) **deprecated** как основной сигнал — в JSON с `grade_deprecated: true`; в text/HTML — `--show-grade`. **`parse-error`** — tool errors (`parse_skipped`), не влияют на confirmed/grade.
 - `-o` / `--output PATH` — записать отчёт в файл
-- `--open` — открыть HTML в браузере; без `-o` пишет в `.testscan/reports/report_<timestamp>.html` и создаёт локальный `.gitignore`, чтобы отчёты не попадали в git
-- `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`. **Migration:** demoted-правила (`name-body-mismatch`, `no-assert`, `mock-only-assert`, `mock-tautology`, `overbroad-equality`, wall-clock у `sleep-in-test`) по умолчанию **note**, поэтому `--fail-on warning` на них больше не падает; для гейтов — triage notes, baseline или override severity в конфиге.
-- `--rule ID` (можно повторять) — только указанные правила; без флага — все из `Default()`
-- `--disable ID` (можно повторять) — выключить правило(а); объединяется с `disable` из конфига
-- одно и то же ID в `--rule` и `--disable` → ошибка, exit `2`
-- `--baseline path.json` — подавить findings по fingerprint (legacy `file+line+rule` — с предупреждением)
-- `--diff <base-ref>` — сканировать только тестовые файлы, изменённые/добавленные с `base-ref` (`git diff --name-only --diff-filter=ACMR`). Основной сценарий для AI-тестов в PR; `origin/main` или `origin/main...HEAD`.
-- `--focus` — после baseline оставить только error/warning с precision правила ≥ `MinPrecisionForGrade` (0.15); отбрасывает `note`, `parse-error`, правила с нулевой precision и фиксированный набор demoted-эвристик даже при bump severity в конфиге. Health Score считается по focused set, чтобы цифра совпадала с тем, что видно. Сочетайте с `--diff` / `--baseline` для ежедневного CI (порядок: scan → baseline → focus → score → emit).
-- `--workers N` — параллельные проверки файлов (`0` → `runtime.NumCPU()`)
+- `--open` — открыть HTML в браузере; без `-o` пишет в `.testscan/reports/report_<timestamp>.html` и создаёт локальный `.gitignore`
+- `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`. **Migration:** demoted-правила и `wall-clock-in-test` по умолчанию **note**, поэтому `--fail-on warning` на них больше не падает.
+- `--rule ID` — только эти правила из `All()`; без флага — `Default()` плюс `--enable`
+- `--enable ID` — включить opt-in Optional-правила; объединяется с `enable` из конфига
+- `--disable ID` — выключить правило(а); объединяется с `disable` из конфига
+- одно и то же ID в `--rule`/`--enable` и `--disable` → ошибка, exit `2`
+- `--baseline path.json` — подавить findings по fingerprint; также точка тренда, если нет `--compare`. При наличии baseline тренд **current** считается по pre-baseline confirmed (большой baseline не может нарисовать ложный `improved` vs `--compare`); в summary `confirmed_*` остаются post-baseline.
+- `--compare path.json` — тренд confirmed vs предыдущий JSON-отчёт
+- `--show-grade` — показать deprecated Health Score / полное кольцо в HTML
+- `--show-low-precision` — эмитить findings с precision &lt; 0.3 (по умолчанию отбрасываются)
+- `--diff <base-ref>` — только изменённые/добавленные тестовые файлы с `base-ref`
+- `--focus` — после baseline оставить error/warning с precision ≥ 0.15; порядок: scan → baseline → focus → low-precision filter → score → emit
+- `--workers N` — параллельные проверки (`0` → `runtime.NumCPU()`)
+
+**Уже есть для CI:** `--diff` + `--baseline` + `--focus` + `codequality`/`sarif`/`json`. Новое: `--enable`, `--compare`, `--show-low-precision`, `--show-grade`.
 
 ### pre-commit
 
@@ -125,22 +138,37 @@ repos:
 # .testscan.toml
 fail-on = "warning"
 disable = ["only-happy-path"]
+enable = ["error-contract-assert", "raises-without-check"]
 paths = ["tests"]
 workers = 4
 exclude = ["**/conftest.py"]
 assert-helpers = ["assert_*", "check_*"]
 python-files = ["test_*.py", "*_test.py"]
 respect-gitignore = true
+# show-low-precision = true
 
 [rules.only-happy-path]
 severity = "note"
 min-tests = 3
-# mode = "coverage"          # опционально: coverage.py JSON вместо эвристик
-# coverage = "coverage.json" # путь к отчёту (также: --coverage PATH)
+# mode = "coverage"
+# coverage = "coverage.json"
 # negative-names = ["invalid", "forbidden", "missing"]
 
 [rules.todo-test]
 severity = "warning"
+
+[rules.error-contract-assert]
+error-code-path = "errors[].code"
+
+[rules.raises-without-check]
+error-attr = "code"
+
+[rules.missing-mirror-test]
+source-glob = "app/**/domain/*.py"
+mirror-template = "tests/{x}/domain/test_{m}.py"
+
+[rules.rbac-mutation-guard]
+# name-cues / mutating-methods / forbidden-signals — см. README (EN)
 
 [[overrides]]
 path = "tests/integration/**"
@@ -149,7 +177,7 @@ disable = ["only-happy-path"]
 
 Inline: `# testscan: ignore[rule-id]` / `ignore-file[...]`.
 
-Явные флаги CLI перекрывают конфиг. Без path-аргументов берутся `paths` из конфига (иначе `.`). `paths` резолвятся относительно каталога файла конфига (не cwd процесса). `disable` из конфига объединяется с `--disable`.
+Явные флаги CLI перекрывают конфиг. Без path-аргументов берутся `paths` из конфига (иначе `.`). `paths` резолвятся относительно каталога файла конфига (не cwd процесса). `disable` / `enable` из конфига объединяются с `--disable` / `--enable`.
 
 `--coverage path` включает coverage-режим для `only-happy-path` (непокрытые `raise`/`except` в измеренном коде).
 
@@ -205,9 +233,9 @@ Go вызывает `parse.File` / batch один раз на файл внут�
 
 Зависимость: установленный `uv` или `python3`/`python`. Текстовые эвристики — только с `AllowHeuristicFallback` или в unit-тестах.
 
-## Правила (Default = 27)
+## Правила (Default + Optional)
 
-Примеры hit/clean по каждому правилу: [docs/rules.ru.md](docs/rules.ru.md).
+Примеры hit/clean: [docs/rules.ru.md](docs/rules.ru.md). Default включены; Optional — через `--enable` / `enable`.
 
 | ID | Severity | Когда |
 |----|----------|--------|
@@ -230,14 +258,19 @@ Go вызывает `parse.File` / batch один раз на файл внут�
 | assert-in-emptyable-loop | warning | assert только внутри for по emptyable (`other`); пропускает литералы / `range` / consts / pre-loop assert |
 | weak-assert | note | только bare truthy / is not None / len vs 0; поверхностный rejects / GET 200; не `len==N` и не `accepts_*` is_valid |
 | mock-tautology | note | assert на сам мок / patched self, повторяющий `return_value` |
-| sleep-in-test | warning / note | `time.sleep` → warning; `datetime.now` / `date.today` без freeze → note |
+| sleep-in-test | warning | `time.sleep` / `asyncio.sleep` |
+| wall-clock-in-test | note | `datetime.now` / `date.today` без freeze |
 | skip-without-reason | warning | skip/xfail без reason или strict |
 | near-duplicate-test | note | почти одинаковые тела после нормализации литералов; пропускает противоположную полярность / разный SUT / enum; 3+ → набросок parametrize |
 | name-body-mismatch | note | имя теста намекает на негатив, а в теле нет негативного сигнала |
 | self-patched-sut | warning | патчит сам SUT и проверяет патч |
 | expected-recomputed | warning | RHS assert пересчитывает ожидаемое через SUT/хелпер (не детерминизм `f(x)==f(x)`) |
 | commented-assert | note | закомментированный `# assert` / `# self.assert` |
-| overbroad-equality | note | assert равен огромному литералу dict/list/tuple (часто валидный snapshot; review) |
+| overbroad-equality | note | assert равен огромному литералу dict/list/tuple (пропускает `response.data` / `*.json()`) |
+| error-contract-assert | *opt-in* | non-2xx status без проверки пути кода ошибки |
+| raises-without-check | *opt-in* | `pytest.raises` без `match=` / attr доменной ошибки |
+| missing-mirror-test | *opt-in* | domain-файл без зеркального теста |
+| rbac-mutation-guard | *opt-in* | RBAC-тест мутирует без проверки запрета |
 
 ## Парсинг
 
@@ -247,7 +280,7 @@ Helper парсит исходники как UTF-8 (форсирует `PYTHONU
 
 ## За пределами статики
 
-testscan — дешёвый префильтр для AI-тестов. **Оркестрация мутаций** (`testscan --mutate` → [mutmut](https://mutmut.readthedocs.io/) / cosmic-ray на `--diff`, survivors как findings) запланирована на **следующий релиз** — в этом релизе её нет. Пока мутационные тулы запускайте отдельно по изменённым строкам, если нужна объективная проверка «тест ловит баг».
+testscan — дешёвый префильтр для AI-тестов. **Оркестрация мутаций** (`testscan mutate` → [mutmut](https://mutmut.readthedocs.io/) / cosmic-ray на `--diff`, survivors как findings) — **Planned** отдельной подкомандой; **не** в этом релизе. Пока мутационные тулы запускайте отдельно по изменённым строкам, если нужна объективная проверка «тест ловит баг».
 
 ## False positives (кратко)
 

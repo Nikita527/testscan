@@ -2,11 +2,12 @@
 
 English | [Русский](rules.ru.md)
 
-Each default rule below has a minimal **hit** (should report) and **clean** (should not) example. Heuristics are text- or AST-based; see the main [README](../README.md) for false-positive notes, **`--diff`** / **`--focus`**, Health Score / precision weighting (`MinPrecisionForGrade` = 0.15), and **tool errors** (`parse-error`).
+Each default rule below has a minimal **hit** (should report) and **clean** (should not) example. Heuristics are text- or AST-based; see the main [README](../README.md) for false-positive notes, **`--diff`** / **`--focus`** / **`--compare`**, confirmed density (`MinPrecisionForDisplay` = 0.3), deprecated Health Score (`MinPrecisionForGrade` = 0.15), and **tool errors** (`parse-error`).
 
-Disable a rule: `--disable ID` or `disable = ["ID"]` in `.testscan.toml` / `[tool.testscan]`.
+Disable a rule: `--disable ID` or `disable = ["ID"]` in `.testscan.toml` / `[tool.testscan]`.  
+Enable an opt-in rule: `--enable ID` or `enable = ["ID"]` (see **Optional rules** at the end).
 
-**Severity vs score:** default severities below drive `--fail-on` and UI chips. Health Score only penalizes **error** and **warning** findings, and only when the rule’s precision weight is ≥ `MinPrecisionForGrade` (0.15); **note** findings and tool errors never affect the grade.
+**Severity vs score:** default severities below drive `--fail-on` and UI chips. **Confirmed** metrics count findings with precision ≥ 0.3 (after baseline / display filter). Deprecated Health Score only penalizes **error** and **warning** when precision ≥ 0.15; **note** findings and tool errors never affect the grade.
 
 ---
 
@@ -510,9 +511,11 @@ def test_sut_uses_dependency():
 
 ## sleep-in-test
 
-**Severity:** warning for `time.sleep` / `asyncio.sleep`; **note** for wall-clock reads (`datetime.now` / `date.today`) without freezegun / time-machine / `freeze_time`.
+**Severity:** warning  
+**When:** `time.sleep` / `asyncio.sleep` in a test.  
+**Note:** `--disable sleep-in-test` does **not** disable `wall-clock-in-test` (separate rule).
 
-Hit (warning):
+Hit:
 
 ```python
 def test_sleep():
@@ -520,7 +523,21 @@ def test_sleep():
     assert True
 ```
 
-Hit (note):
+Clean:
+
+```python
+def test_ok():
+    assert True
+```
+
+---
+
+## wall-clock-in-test
+
+**Severity:** note  
+**When:** `datetime.now` / `date.today` without freezegun / time-machine / `freeze_time`.
+
+Hit:
 
 ```python
 def test_wall_clock():
@@ -699,13 +716,13 @@ def test_ok():
 ## overbroad-equality
 
 **Severity:** note  
-**When:** an assert compares against a huge dict/list/tuple literal (long text or many commas). Often a valid contract/snapshot; review whether focused field checks would be clearer.
+**When:** an assert compares against a huge dict/list/tuple literal (long text or many commas). Skips API-contract compares where one side is `response.data` / `resp.data` / a `*.json()`-like response body. Often a valid snapshot otherwise; review whether focused field checks would be clearer.
 
 Hit:
 
 ```python
 def test_huge_payload():
-    assert resp.json() == {"a": 1, "b": 2, /* … many keys … */}
+    assert payload == {"a": 1, "b": 2, /* … many keys … */}
 ```
 
 Clean:
@@ -714,4 +731,33 @@ Clean:
 def test_field_checks():
     data = resp.json()
     assert data["id"] == 1
+
+def test_api_contract():
+    assert response.data == {"id": 1, "name": "x", /* … */}
 ```
+
+---
+
+## Optional rules (opt-in)
+
+Off by default. Enable with `--enable ID` or `enable = ["ID"]` in `[tool.testscan]`. Configure under `[rules.<id>]`. Profile paths belong in the consumer’s `pyproject.toml` — testscan does not hardcode `app/`.
+
+### error-contract-assert
+
+**When:** test asserts a non-2xx `status_code` / `HTTP_4xx|5xx` but does not assert the configured error-code path (default `errors[].code`).  
+**Options:** `error-code-path`, `error-status-only` (default true).
+
+### raises-without-check
+
+**When:** `pytest.raises(...)` without `match=` and without checking a domain error attribute (default `.code` / `exc_info.value.code`).  
+**Options:** `error-attr`, `exception-classes` (optional allowlist).
+
+### missing-mirror-test
+
+**When:** a source file matching `source-glob` has no file at `mirror-template` (`{m}` = stem, `{x}` = path segments). Finding is on the **source** file. Does not check Django imports.  
+**Options:** `source-glob`, `mirror-template`.
+
+### rbac-mutation-guard
+
+**When:** a test looks RBAC/permission-related (name/fixtures cues) and performs a mutating action (HTTP POST/PUT/PATCH/DELETE or create/update/delete-style calls) but does not assert forbid (401/403 / Permission raises / forbidden signals).  
+**Options:** `name-cues`, `mutating-methods`, `forbidden-signals`.

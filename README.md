@@ -41,8 +41,15 @@ testscan tests --diff origin/main --focus --format html --open
 testscan tests --format json --fail-on never > .testscan/baseline.json
 testscan tests --diff origin/main --baseline .testscan/baseline.json --focus --fail-on warning
 
+# Trend vs yesterday’s JSON (or use --baseline alone as the compare point)
+testscan tests --format json -o .testscan/prev.json --fail-on never
+testscan tests --compare .testscan/prev.json --format text
+
 # Full scan without --focus (triage low-precision heuristics / notes)
 testscan path/to/tests --format html --open
+
+# Opt-in project rules (DRF / API-style)
+testscan tests --enable error-contract-assert --enable raises-without-check
 
 testscan path/to/tests --format text --fail-on error
 testscan path/to/tests --format json --fail-on never
@@ -77,18 +84,24 @@ Go remains the source of truth; Python only locates the binary and forwards argv
 
 ### Flags
 
-- `--format text|json|sarif|html|codequality` (default: `text`) — `html` is a self-contained interactive report (Health Score ring + filters for **error / warning / note / tool error**; search; grouped by rule → file sorted by **precision desc**; code snippets ±5 lines; near-duplicate twin links). Notes and tool errors are unchecked by default so the first view is trusted warnings. `codequality` is GitLab Code Quality (Code Climate JSON). Write with `-o`/`--output`, or redirect stdout (`> report.html`).
-- `text` ends with `Health Score: N (G)`; `json` is `{"summary":{health_score,grade,errors,warnings,notes,files,parse_skipped,warnings_in_grade,warnings_ignored},"findings":[…]}` (breaking vs a bare array — use `findings` for baselines / CI parsers). Health Score weights **error+warning** by per-rule precision (precision < `MinPrecisionForGrade` = 0.15 → weight 0 for grade); mid-precision rules count proportionally. **notes** are UI-only (no penalty). **`parse-error` / AST failures** are **tool errors**: counted in `parse_skipped` and shown separately in HTML — they do **not** affect the grade.
+- `--format text|json|sarif|html|codequality` (default: `text`) — `html` is a self-contained interactive report (confirmed density + trend in the hero; optional Health Score ring with `--show-grade`; filters for **error / warning / note / tool error**; search; default grouping **file → findings**, toggle By rule; `vscode://file/…:line` links; repeated messages as `×N`; code snippets ±5 lines; near-duplicate twin links). Notes and tool errors are unchecked by default. `codequality` is GitLab Code Quality (Code Climate JSON). Write with `-o`/`--output`, or redirect stdout (`> report.html`).
+- `text` ends with `Confirmed: N (density X.XX)` and optional trend; `json` is `{"summary":{confirmed_count,confirmed_density,trend?,health_score,grade,grade_deprecated,errors,warnings,notes,files,parse_skipped,warnings_in_grade,warnings_ignored},"findings":[…]}` (breaking vs a bare array — use `findings` for baselines / CI parsers). **Confirmed** findings have rule precision ≥ `MinPrecisionForDisplay` (0.3) after baseline / display filter. **Health Score** (precision-weighted error+warning; floor `MinPrecisionForGrade` = 0.15) is **deprecated** as the primary signal — still in JSON with `grade_deprecated: true`; show in text/HTML via `--show-grade`. **notes** are UI-only. **`parse-error` / AST failures** are **tool errors**: `parse_skipped` / separate HTML chip — they do **not** affect confirmed metrics or grade.
 - `-o` / `--output PATH` — write report to a file (any format)
 - `--open` — open HTML report in the default browser; without `-o` writes to `.testscan/reports/report_<timestamp>.html` and creates a local `.gitignore` so reports stay out of git
-- `--fail-on error|warning|never` (default: `error`) — exit `1` if any finding ≥ threshold; CLI errors → exit `2`. **Migration:** demoted rules (`name-body-mismatch`, `no-assert`, `mock-only-assert`, `mock-tautology`, `overbroad-equality`, wall-clock `sleep-in-test`) are **note** by default, so `--fail-on warning` no longer fails on them; use notes triage, baseline, or config severity overrides if you still want gates.
-- `--rule ID` (repeatable) — only these rules; omit to use `Default()`
+- `--fail-on error|warning|never` (default: `error`) — exit `1` if any finding ≥ threshold; CLI errors → exit `2`. **Migration:** demoted rules (`name-body-mismatch`, `no-assert`, `mock-only-assert`, `mock-tautology`, `overbroad-equality`) and `wall-clock-in-test` are **note** by default, so `--fail-on warning` no longer fails on them; use notes triage, baseline, or config severity overrides if you still want gates.
+- `--rule ID` (repeatable) — only these rules (from `All()` = Default ∪ Optional); omit to use `Default()` plus `--enable`
+- `--enable ID` (repeatable) — turn on opt-in Optional rules; merged with config `enable`
 - `--disable ID` (repeatable) — turn rule(s) off; merged with config `disable`
-- same ID in both `--rule` and `--disable` → error, exit `2`
-- `--baseline path.json` — suppress findings matching baseline by fingerprint (legacy `file+line+rule` still works once with a warning)
+- same ID in both `--rule`/`--enable` and `--disable` → error, exit `2`
+- `--baseline path.json` — suppress findings matching baseline by fingerprint (legacy `file+line+rule` still works once with a warning); also used as the trend compare point when `--compare` is omitted. When baseline is set, trend **current** is pre-baseline confirmed (so a large baseline cannot fake `improved` vs `--compare`); emitted `confirmed_*` stay post-baseline.
+- `--compare path.json` — trend confirmed metrics vs a previous JSON report (wrapper or findings array)
+- `--show-grade` — print deprecated Health Score / show full HTML grade ring
+- `--show-low-precision` — emit findings with precision &lt; 0.3 (default: omit)
 - `--diff <base-ref>` — scan only test files changed or added since `base-ref` (`git diff --name-only --diff-filter=ACMR`). Primary PR workflow for reviewing AI-generated tests; use `origin/main` or `origin/main...HEAD`.
-- `--focus` — after baseline, keep only error/warning findings whose rule precision is ≥ `MinPrecisionForGrade` (0.15); drops `note`, `parse-error`, zero-precision rules, and a fixed set of demoted heuristics even if config bumps their severity. Health Score is computed on the focused set so the number matches what you see. Combine with `--diff` / `--baseline` for daily CI (order: scan → baseline → focus → score → emit).
+- `--focus` — after baseline, keep only error/warning findings whose rule precision is ≥ `MinPrecisionForGrade` (0.15); drops `note`, `parse-error`, zero-precision rules, and a fixed set of demoted heuristics even if config bumps their severity. Score is computed on the focused set. Combine with `--diff` / `--baseline` for daily CI (order: scan → baseline → focus → low-precision filter → score → emit).
 - `--workers N` — parallel file checks (`0` → `runtime.NumCPU()`)
+
+**Already available for CI:** `--diff` + `--baseline` + `--focus` + `--format codequality|sarif|json`. New knobs: `--enable`, `--compare`, `--show-low-precision`, `--show-grade`.
 
 ### pre-commit
 
@@ -116,6 +129,7 @@ Walks parents from the current working directory. Prefers `.testscan.toml`; othe
 # .testscan.toml
 fail-on = "warning"
 disable = ["only-happy-path"]
+enable = ["error-contract-assert", "raises-without-check"]
 paths = ["tests"]
 workers = 4
 exclude = ["**/conftest.py"]
@@ -124,6 +138,7 @@ python-files = ["test_*.py", "*_test.py"]
 python-functions = ["test_*"]
 python-classes = ["Test*"]
 respect-gitignore = true
+# show-low-precision = true  # emit findings below precision 0.3
 
 [rules.only-happy-path]
 severity = "note"
@@ -135,6 +150,24 @@ min-tests = 3
 [rules.todo-test]
 severity = "warning"
 
+# Opt-in API / DRF-style project rules (enable above or via --enable)
+[rules.error-contract-assert]
+error-code-path = "errors[].code"
+# error-status-only = true
+
+[rules.raises-without-check]
+error-attr = "code"
+# exception-classes = ["DomainError"]
+
+[rules.missing-mirror-test]
+source-glob = "app/**/domain/*.py"
+mirror-template = "tests/{x}/domain/test_{m}.py"
+
+[rules.rbac-mutation-guard]
+# name-cues = ["rbac", "permission", "forbidden", "role", "protected"]
+# mutating-methods = ["post", "put", "patch", "delete"]
+# forbidden-signals = ["401", "403", "forbidden", "permission"]
+
 [[overrides]]
 path = "tests/integration/**"
 disable = ["only-happy-path"]
@@ -142,7 +175,7 @@ disable = ["only-happy-path"]
 
 Inline suppress: `# testscan: ignore[rule-id]` (or `ignore[a,b]`) on the finding line, the line before/`def` of the test, or `# testscan: ignore-file[rule-id]` / ignore in the module header.
 
-CLI flags override config when set. If no path args are given, `paths` from config is used (else `.`). Config `paths` are resolved relative to the config file’s directory (not the process cwd). Config `disable` is unioned with `--disable`.
+CLI flags override config when set. If no path args are given, `paths` from config is used (else `.`). Config `paths` are resolved relative to the config file’s directory (not the process cwd). Config `disable` / `enable` are unioned with `--disable` / `--enable`.
 
 `--coverage path` enables coverage mode for `only-happy-path` (uncovered `raise`/`except` in measured code).
 
@@ -198,9 +231,11 @@ Go calls `parse.File` / batch once per file inside `scan.Run` (cached on `scan.F
 
 Requires installed `uv` or `python3`/`python`. Text heuristics remain only for unit tests with `AllowHeuristicFallback` or when AST is unavailable under that flag.
 
-## Rules (Default = 27)
+## Rules (Default + Optional)
 
 Hit/clean examples for every rule: [docs/rules.md](docs/rules.md).
+
+Default rules are on unless `--disable` / `disable`. Opt-in rules are off until `--enable` / `enable`.
 
 | ID | Severity | When |
 |----|----------|------|
@@ -223,14 +258,19 @@ Hit/clean examples for every rule: [docs/rules.md](docs/rules.md).
 | assert-in-emptyable-loop | warning | asserts only inside for over emptyable (`other`) iterable; skips literals / `range` / consts / pre-loop assert |
 | weak-assert | note | only bare truthy / is not None / len vs 0; shallow rejects / GET 200; not `len==N` or `accepts_*` is_valid |
 | mock-tautology | note | assert on mock itself / patched self echoing `return_value` |
-| sleep-in-test | warning / note | `time.sleep` → warning; `datetime.now` / `date.today` without freeze → note |
+| sleep-in-test | warning | `time.sleep` / `asyncio.sleep` |
+| wall-clock-in-test | note | `datetime.now` / `date.today` without freeze |
 | skip-without-reason | warning | skip/xfail without reason or strict |
 | near-duplicate-test | note | near-identical bodies after literal norm; skips opposite polarity / different SUT / enums; 3+ → parametrize sketch |
 | name-body-mismatch | note | test name implies negative case but body has no negative signal |
 | self-patched-sut | warning | patches the SUT under test and asserts the patch |
 | expected-recomputed | warning | assert RHS recomputes expected via SUT/helper call (not `f(x)==f(x)` determinism) |
 | commented-assert | note | commented-out `# assert` / `# self.assert` |
-| overbroad-equality | note | assert equals a huge dict/list/tuple literal (often a valid snapshot; review) |
+| overbroad-equality | note | assert equals a huge dict/list/tuple literal (skips `response.data` / `*.json()` contract bodies) |
+| error-contract-assert | *opt-in* | non-2xx status assert without configured error-code path |
+| raises-without-check | *opt-in* | `pytest.raises` without `match=` / domain error attr check |
+| missing-mirror-test | *opt-in* | domain source file without mirror test path |
+| rbac-mutation-guard | *opt-in* | RBAC-ish test mutates without asserting forbid (401/403 / raises) |
 
 ## Parsing
 
@@ -240,7 +280,7 @@ The helper parses source as UTF-8 (forces `PYTHONUTF8=1` / `PYTHONIOENCODING=utf
 
 ## Beyond static analysis
 
-testscan is a cheap pre-filter for AI-written tests. **Mutation orchestration** (`testscan --mutate` → [mutmut](https://mutmut.readthedocs.io/) / cosmic-ray on `--diff`, survivors as findings) is **planned for the next release** — not in this release. Until then, run mutation tools separately on changed lines if you need an objective “does this test catch a bug?” check.
+testscan is a cheap pre-filter for AI-written tests. **Mutation orchestration** (`testscan mutate` → [mutmut](https://mutmut.readthedocs.io/) / cosmic-ray on `--diff`, survivors as findings) is **planned** as a separate subcommand — **not** in this release. Until then, run mutation tools separately on changed lines if you need an objective “does this test catch a bug?” check.
 
 ## False positives (short)
 

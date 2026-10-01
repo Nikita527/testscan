@@ -12,6 +12,7 @@ import (
 type Config struct {
 	FailOn  string // error|warning|never; empty = unset
 	Disable []string
+	Enable  []string
 	Paths   []string
 	Workers int    // 0 = unset (NumCPU in scan)
 	Source  string // config file path loaded from; empty if none
@@ -22,6 +23,7 @@ type Config struct {
 	PythonFunctions  []string
 	PythonClasses    []string
 	RespectGitignore bool // default true
+	ShowLowPrecision bool // emit findings below MinPrecisionForDisplay
 	Rules            map[string]RuleConfig
 	Overrides        []Override
 }
@@ -38,6 +40,23 @@ type RuleConfig struct {
 	// NegativeNames — substrings in test names / parametrize ids that count as
 	// negative-path signals (only-happy-path). Empty = built-in defaults.
 	NegativeNames []string
+
+	// error-contract-assert
+	ErrorCodePath   string // default "errors[].code"
+	ErrorStatusOnly *bool  // nil → true when rule is configured/enabled
+
+	// raises-without-check
+	ErrorAttr        string   // default "code"
+	ExceptionClasses []string // empty = all non-broad raises
+
+	// missing-mirror-test
+	SourceGlob     string
+	MirrorTemplate string
+
+	// rbac-mutation-guard
+	NameCues         []string
+	MutatingMethods  []string
+	ForbiddenSignals []string
 }
 
 // Override is [[overrides]] path glob → disable rules.
@@ -50,6 +69,7 @@ type fileTOML struct {
 	FailOnKebab      string              `toml:"fail-on"`
 	FailOnSnake      string              `toml:"fail_on"`
 	Disable          []string            `toml:"disable"`
+	Enable           []string            `toml:"enable"`
 	Paths            []string            `toml:"paths"`
 	Workers          int                 `toml:"workers"`
 	Exclude          []string            `toml:"exclude"`
@@ -58,16 +78,27 @@ type fileTOML struct {
 	PythonFunctions  []string            `toml:"python-functions"`
 	PythonClasses    []string            `toml:"python-classes"`
 	RespectGitignore *bool               `toml:"respect-gitignore"`
+	ShowLowPrecision *bool               `toml:"show-low-precision"`
+	ShowLowPrecSnake *bool               `toml:"show_low_precision"`
 	Rules            map[string]ruleTOML `toml:"rules"`
 	Overrides        []overrideTOML      `toml:"overrides"`
 }
 
 type ruleTOML struct {
-	Severity      string   `toml:"severity"`
-	MinTests      int      `toml:"min-tests"`
-	Mode          string   `toml:"mode"`
-	Coverage      string   `toml:"coverage"`
-	NegativeNames []string `toml:"negative-names"`
+	Severity         string   `toml:"severity"`
+	MinTests         int      `toml:"min-tests"`
+	Mode             string   `toml:"mode"`
+	Coverage         string   `toml:"coverage"`
+	NegativeNames    []string `toml:"negative-names"`
+	ErrorCodePath    string   `toml:"error-code-path"`
+	ErrorStatusOnly  *bool    `toml:"error-status-only"`
+	ErrorAttr        string   `toml:"error-attr"`
+	ExceptionClasses []string `toml:"exception-classes"`
+	SourceGlob       string   `toml:"source-glob"`
+	MirrorTemplate   string   `toml:"mirror-template"`
+	NameCues         []string `toml:"name-cues"`
+	MutatingMethods  []string `toml:"mutating-methods"`
+	ForbiddenSignals []string `toml:"forbidden-signals"`
 }
 
 type overrideTOML struct {
@@ -157,14 +188,15 @@ func testscanSectionPresent(t fileTOML) bool {
 	if t.FailOnKebab != "" || t.FailOnSnake != "" || t.Workers != 0 {
 		return true
 	}
-	if len(t.Disable) > 0 || len(t.Paths) > 0 || len(t.Exclude) > 0 {
+	if len(t.Disable) > 0 || len(t.Enable) > 0 || len(t.Paths) > 0 || len(t.Exclude) > 0 {
 		return true
 	}
 	if len(t.AssertHelpers) > 0 || len(t.PythonFiles) > 0 ||
 		len(t.PythonFunctions) > 0 || len(t.PythonClasses) > 0 {
 		return true
 	}
-	if t.RespectGitignore != nil || len(t.Rules) > 0 || len(t.Overrides) > 0 {
+	if t.RespectGitignore != nil || t.ShowLowPrecision != nil || t.ShowLowPrecSnake != nil ||
+		len(t.Rules) > 0 || len(t.Overrides) > 0 {
 		return true
 	}
 	return false
@@ -203,12 +235,37 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 		if cov != "" && !filepath.IsAbs(cov) {
 			cov = filepath.Clean(filepath.Join(base, cov))
 		}
+		exc := r.ExceptionClasses
+		if exc == nil {
+			exc = []string{}
+		}
+		nameCues := r.NameCues
+		if nameCues == nil {
+			nameCues = []string{}
+		}
+		mutating := r.MutatingMethods
+		if mutating == nil {
+			mutating = []string{}
+		}
+		forbidden := r.ForbiddenSignals
+		if forbidden == nil {
+			forbidden = []string{}
+		}
 		rules[id] = RuleConfig{
-			Severity:      r.Severity,
-			MinTests:      r.MinTests,
-			Mode:          mode,
-			Coverage:      cov,
-			NegativeNames: neg,
+			Severity:         r.Severity,
+			MinTests:         r.MinTests,
+			Mode:             mode,
+			Coverage:         cov,
+			NegativeNames:    neg,
+			ErrorCodePath:    r.ErrorCodePath,
+			ErrorStatusOnly:  r.ErrorStatusOnly,
+			ErrorAttr:        r.ErrorAttr,
+			ExceptionClasses: exc,
+			SourceGlob:       r.SourceGlob,
+			MirrorTemplate:   r.MirrorTemplate,
+			NameCues:         nameCues,
+			MutatingMethods:  mutating,
+			ForbiddenSignals: forbidden,
 		}
 	}
 
@@ -224,6 +281,13 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 	respect := true
 	if raw.RespectGitignore != nil {
 		respect = *raw.RespectGitignore
+	}
+
+	showLow := false
+	if raw.ShowLowPrecision != nil {
+		showLow = *raw.ShowLowPrecision
+	} else if raw.ShowLowPrecSnake != nil {
+		showLow = *raw.ShowLowPrecSnake
 	}
 
 	pythonFiles := raw.PythonFiles
@@ -244,6 +308,10 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 	disable := raw.Disable
 	if disable == nil {
 		disable = []string{}
+	}
+	enable := raw.Enable
+	if enable == nil {
+		enable = []string{}
 	}
 	paths := raw.Paths
 	if paths == nil {
@@ -279,6 +347,7 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 	return Config{
 		FailOn:           failOn,
 		Disable:          disable,
+		Enable:           enable,
 		Paths:            resolved,
 		Workers:          raw.Workers,
 		Source:           source,
@@ -288,6 +357,7 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 		PythonFunctions:  pythonFunctions,
 		PythonClasses:    pythonClasses,
 		RespectGitignore: respect,
+		ShowLowPrecision: showLow,
 		Rules:            rules,
 		Overrides:        overrides,
 	}, nil

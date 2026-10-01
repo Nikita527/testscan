@@ -34,6 +34,7 @@ func TestWriteHTML(t *testing.T) {
 	}
 
 	score := scan.CalculateScore(findings, 2)
+	score.PathRoot = `C:\proj`
 	var buf bytes.Buffer
 	if err := scan.WriteHTML(&buf, findings, score); err != nil {
 		t.Fatal(err)
@@ -51,20 +52,29 @@ func TestWriteHTML(t *testing.T) {
 		"data-sev=\"error\"",
 		"data-sev=\"warning\"",
 		`id="q"`,
-		"score-value",
 		"score-caption",
 		"signal-caption",
-		"Showing trusted warnings first",
-		"not a claim that tests are excellent",
-		"Health Score",
-		`data-grade=`,
-		").toLowerCase();",
+		"precision &lt; 0.3",
+		"--show-low-precision",
+		"Confirmed density",
+		"confirmed",
+		"density",
+		"vscode://file/",
+		`data-view="file"`,
+		`data-view="rule"`,
+		"By file",
+		"By rule",
+		"file-section",
 		`data-sev="note"> other</label>`,
 		`data-sev="tool-error"> tool error</label>`,
+		").toLowerCase();",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)
 		}
+	}
+	if !strings.Contains(out, "grade") {
+		t.Error("want muted grade text in hero")
 	}
 	if strings.Contains(out, `data-sev="note" checked>`) {
 		t.Error("note filter must be unchecked by default")
@@ -74,6 +84,23 @@ func TestWriteHTML(t *testing.T) {
 	}
 	if strings.Contains(out, "<script src=") {
 		t.Error("report must be self-contained (no external script)")
+	}
+	// Default view is by-file; rule panel hidden
+	if !strings.Contains(out, `id="view-rule"`) || !strings.Contains(out, `view-panel is-hidden`) {
+		t.Error("want rule view panel present and hidden by default")
+	}
+}
+
+func TestWriteHTML_ShowGradeRing(t *testing.T) {
+	score := scan.CalculateScore(nil, 1)
+	score.ShowGrade = true
+	var buf bytes.Buffer
+	if err := scan.WriteHTML(&buf, nil, score); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "score-value") || !strings.Contains(out, `data-grade=`) {
+		t.Fatalf("want Health Score ring when ShowGrade: %s", out[:min(400, len(out))])
 	}
 }
 
@@ -98,7 +125,6 @@ func TestWriteHTML_Escapes(t *testing.T) {
 		t.Fatalf("expected escaped path, got snippet missing")
 	}
 	if !strings.Contains(out, "x &lt; y &amp; &#34;z&#34;") && !strings.Contains(out, `x &lt; y &amp; "z"`) {
-		// html.EscapeString uses &#34; for quotes
 		if !strings.Contains(out, "x &lt; y &amp;") {
 			t.Fatalf("message not escaped: %s", out)
 		}
@@ -117,8 +143,8 @@ func TestWriteHTML_Empty(t *testing.T) {
 	if !strings.Contains(out, "No findings") {
 		t.Fatal("want empty toc message")
 	}
-	if !strings.Contains(out, ">100<") && !strings.Contains(out, "score-value\">100") {
-		t.Fatalf("want perfect score in hero, got: %s", out[:min(400, len(out))])
+	if !strings.Contains(out, "confirmed") {
+		t.Fatalf("want confirmed hero, got: %s", out[:min(400, len(out))])
 	}
 }
 
@@ -165,14 +191,18 @@ func TestWriteHTML_SnippetRelatedDedup(t *testing.T) {
 		`<pre class="snippet">`,
 		"assert x == 2",
 		`twin test_a:1`,
-		"same message as above",
+		"×2",
 		"more than 3 tests without negative-path signals",
+		"vscode://file/",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	// Cross-file identical messages must remain visible (not collapsed).
+	if strings.Contains(out, "same message as above") {
+		t.Error("must not use same-message-as-above; use ×N collapse")
+	}
+	// Cross-file identical messages must remain visible (not collapsed across files).
 	if strings.Count(out, "more than 3 tests without negative-path signals") < 2 {
 		t.Fatalf("expected full message in at least two files, got:\n%s", out)
 	}
@@ -234,9 +264,7 @@ func TestWriteHTML_PrecisionSortAndBadge(t *testing.T) {
 	}
 	out := buf.String()
 
-	// assert-true (0.90) before empty-test (1.0 default) — wait, empty-test defaults to 1.0
-	// which is higher than assert-true 0.90. Order: empty-test (1.0), assert-true (0.90),
-	// name-body-mismatch (0.35), no-assert (0.0).
+	// Rule view still present with precision-desc order.
 	idxEmpty := strings.Index(out, `id="rule-empty-test"`)
 	idxAssertTrue := strings.Index(out, `id="rule-assert-true"`)
 	idxName := strings.Index(out, `id="rule-name-body-mismatch"`)
@@ -257,5 +285,48 @@ func TestWriteHTML_PrecisionSortAndBadge(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing precision badge %q", want)
 		}
+	}
+	// By-file sections use hashed ids (stable, collision-free).
+	if !strings.Contains(out, `id="file-`) || !strings.Contains(out, "file-section") {
+		t.Error("want by-file section ids")
+	}
+}
+
+func TestFileSectionIDsUnique(t *testing.T) {
+	findings := []scan.Finding{
+		{File: "a/b.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "m1"},
+		{File: "a-b.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "m2"},
+	}
+	var buf bytes.Buffer
+	if err := scan.WriteHTML(&buf, findings, scan.CalculateScore(findings, 2)); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	// Both paths must appear; hashed ids must differ (no single shared sanitized id).
+	if !strings.Contains(out, "a/b.py") || !strings.Contains(out, "a-b.py") {
+		t.Fatal("want both file paths in report")
+	}
+	// Count distinct file- hex ids in section headers
+	count := strings.Count(out, `class="file-section" id="file-`)
+	if count != 2 {
+		t.Fatalf("want 2 distinct file sections, got %d", count)
+	}
+}
+
+func TestWriteHTML_TrendInHero(t *testing.T) {
+	score := scan.CalculateScore(nil, 1)
+	tr := scan.ComputeTrend(0, 0, 2, 1.0)
+	tr.CurrentPreBaseline = true
+	score.Trend = &tr
+	var buf bytes.Buffer
+	if err := scan.WriteHTML(&buf, nil, score); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "trend improved") {
+		t.Fatalf("want trend in hero: %s", out[:min(600, len(out))])
+	}
+	if !strings.Contains(out, "pre-baseline") {
+		t.Fatalf("want pre-baseline trend label: %s", out[:min(800, len(out))])
 	}
 }

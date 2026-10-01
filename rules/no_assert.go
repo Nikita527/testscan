@@ -30,9 +30,15 @@ var noRaiseNamePhrases = []string{
 	"does_not_raise", "no_raise", "doesnt_raise", "no_op",
 }
 
-var noRaiseNameVerbs = []string{
-	"ok", "noop", "swallows", "ignores", "skips", "allows",
-	"accepts", "passes", "tolerates",
+// noRaiseNameVerbsEdge — first/last token or name prefix/suffix only
+// (avoid mid-token FP/FN like test_password_passes_checks).
+var noRaiseNameVerbsEdge = []string{
+	"ok", "noop", "accepts", "passes",
+}
+
+// noRaiseNameVerbsMid — intentional no-raise verbs matched on any underscore token.
+var noRaiseNameVerbsMid = []string{
+	"swallows", "ignores", "skips", "allows", "tolerates",
 }
 
 var implicitCheckPrefixes = []string{
@@ -47,8 +53,19 @@ func isNoRaiseTestName(name string) bool {
 			return true
 		}
 	}
-	// Verb-first / single-token: accepts_*, passes_*, ok, … — not password_passes_checks.
-	for _, verb := range noRaiseNameVerbs {
+	// Mid-token: test_release_swallows_redis_errors
+	for _, tok := range strings.Split(n, "_") {
+		if tok == "" {
+			continue
+		}
+		for _, verb := range noRaiseNameVerbsMid {
+			if tok == verb {
+				return true
+			}
+		}
+	}
+	// Edge-only: accepts_*, *_passes, ok — not password_passes_checks.
+	for _, verb := range noRaiseNameVerbsEdge {
 		if n == verb || strings.HasPrefix(n, verb+"_") || strings.HasSuffix(n, "_"+verb) {
 			return true
 		}
@@ -127,7 +144,7 @@ func noAssertFromAST(file scan.File, model parse.Model) []scan.Finding {
 			Line:     t.Lineno,
 			Rule:     "no-assert",
 			Severity: "note",
-			Message:  "no assert found in test: " + q,
+			Message:  "no assert found in test: " + q + "; if intentional, use does_not_raise() or rename (e.g. test_…_does_not_raise_…)",
 			QualName: q,
 		})
 	}

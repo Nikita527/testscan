@@ -2,11 +2,12 @@
 
 [English](rules.md) | Русский
 
-У каждого правила из `Default()` есть минимальный пример **hit** (должен сработать) и **clean** (не должен). Эвристики текстовые или AST — см. [README.ru.md](../README.ru.md) про ложные срабатывания, **`--diff`** / **`--focus`**, Health Score / precision-веса (`MinPrecisionForGrade` = 0.15) и **tool errors** (`parse-error`).
+У каждого правила из `Default()` есть минимальный пример **hit** (должен сработать) и **clean** (не должен). Эвристики текстовые или AST — см. [README.ru.md](../README.ru.md) про ложные срабатывания, **`--diff`** / **`--focus`** / **`--compare`**, confirmed density (`MinPrecisionForDisplay` = 0.3), deprecated Health Score (`MinPrecisionForGrade` = 0.15) и **tool errors** (`parse-error`).
 
-Отключить правило: `--disable ID` или `disable = ["ID"]` в `.testscan.toml` / `[tool.testscan]`.
+Отключить правило: `--disable ID` или `disable = ["ID"]` в `.testscan.toml` / `[tool.testscan]`.  
+Включить opt-in: `--enable ID` или `enable = ["ID"]` (см. **Optional** в конце).
 
-**Severity vs score:** severity ниже влияет на `--fail-on` и чипы в UI. Health Score штрафует только **error** и **warning**, и только если precision-вес правила ≥ `MinPrecisionForGrade` (0.15); **note** и tool errors на grade не влияют.
+**Severity vs score:** severity ниже влияет на `--fail-on` и чипы в UI. **Confirmed** считает findings с precision ≥ 0.3 (после baseline / display-фильтра). Deprecated Health Score штрафует только **error**/**warning** при precision ≥ 0.15; **note** и tool errors на grade не влияют.
 
 ---
 
@@ -510,9 +511,11 @@ def test_sut_uses_dependency():
 
 ## sleep-in-test
 
-**Severity:** warning для `time.sleep` / `asyncio.sleep`; **note** для чтения часов (`datetime.now` / `date.today`) без freezegun / time-machine / `freeze_time`.
+**Severity:** warning  
+**When:** `time.sleep` / `asyncio.sleep` в тесте.  
+**Note:** `--disable sleep-in-test` **не** отключает `wall-clock-in-test`.
 
-Hit (warning):
+Hit:
 
 ```python
 def test_sleep():
@@ -520,7 +523,21 @@ def test_sleep():
     assert True
 ```
 
-Hit (note):
+Clean:
+
+```python
+def test_ok():
+    assert True
+```
+
+---
+
+## wall-clock-in-test
+
+**Severity:** note  
+**When:** `datetime.now` / `date.today` без freezegun / time-machine / `freeze_time`.
+
+Hit:
 
 ```python
 def test_wall_clock():
@@ -699,13 +716,13 @@ def test_ok():
 ## overbroad-equality
 
 **Severity:** note  
-**Когда:** assert сравнивает с огромным литералом dict/list/tuple (длинный текст или много запятых). Часто валидный contract/snapshot; имеет смысл проверить, не яснее ли точечные поля.
+**Когда:** assert сравнивает с огромным литералом dict/list/tuple. Пропускает контракт API, где одна сторона — `response.data` / `resp.data` / `*.json()`-подобный body.
 
 Hit:
 
 ```python
 def test_huge_payload():
-    assert resp.json() == {"a": 1, "b": 2, /* … много ключей … */}
+    assert payload == {"a": 1, "b": 2, /* … много ключей … */}
 ```
 
 Clean:
@@ -714,4 +731,33 @@ Clean:
 def test_field_checks():
     data = resp.json()
     assert data["id"] == 1
+
+def test_api_contract():
+    assert response.data == {"id": 1, "name": "x", /* … */}
 ```
+
+---
+
+## Optional-правила (opt-in)
+
+Выключены по умолчанию. Включение: `--enable ID` или `enable = ["ID"]`. Опции — в `[rules.<id>]`. Пути профиля только в `pyproject.toml` потребителя.
+
+### error-contract-assert
+
+**Когда:** тест проверяет non-2xx `status_code` / `HTTP_4xx|5xx`, но не assert’ит путь кода ошибки (дефолт `errors[].code`).  
+**Опции:** `error-code-path`, `error-status-only`.
+
+### raises-without-check
+
+**Когда:** `pytest.raises(...)` без `match=` и без проверки атрибута доменной ошибки (дефолт `.code`).  
+**Опции:** `error-attr`, `exception-classes`.
+
+### missing-mirror-test
+
+**Когда:** source по `source-glob` без файла по `mirror-template` (`{m}` = stem, `{x}` = сегменты пути). Finding на **source**. Django-импорты не проверяет.  
+**Опции:** `source-glob`, `mirror-template`.
+
+### rbac-mutation-guard
+
+**Когда:** тест похож на RBAC/permission и мутирует (POST/PUT/PATCH/DELETE или create/update/delete), но не проверяет запрет (401/403 / Permission / forbidden).  
+**Опции:** `name-cues`, `mutating-methods`, `forbidden-signals`.

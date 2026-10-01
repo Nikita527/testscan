@@ -292,17 +292,56 @@ func TestLoad_AbsolutePathUnchanged(t *testing.T) {
 	}
 }
 
-func TestLoad_InvalidOnlyHappyPathMode(t *testing.T) {
+func TestLoad_EnableAndProjectRuleFields(t *testing.T) {
 	dir := t.TempDir()
 	content := `
-[rules.only-happy-path]
-mode = "fast"
+enable = ["error-contract-assert", "rbac-mutation-guard"]
+show-low-precision = true
+
+[rules.error-contract-assert]
+error-code-path = "detail.code"
+error-status-only = false
+
+[rules.raises-without-check]
+error-attr = "error_code"
+exception-classes = ["DomainError"]
+
+[rules.missing-mirror-test]
+source-glob = "pkg/**/domain/*.py"
+mirror-template = "tests/{x}/test_{m}.py"
+
+[rules.rbac-mutation-guard]
+name-cues = ["acl"]
+mutating-methods = ["post"]
+forbidden-signals = ["403"]
 `
 	if err := os.WriteFile(filepath.Join(dir, ".testscan.toml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := config.Load(dir)
-	if err == nil {
-		t.Fatal("want error for invalid mode")
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Enable) != 2 || cfg.Enable[0] != "error-contract-assert" {
+		t.Fatalf("enable=%v", cfg.Enable)
+	}
+	if !cfg.ShowLowPrecision {
+		t.Fatal("want show-low-precision true")
+	}
+	ec := cfg.Rules["error-contract-assert"]
+	if ec.ErrorCodePath != "detail.code" || ec.ErrorStatusOnly == nil || *ec.ErrorStatusOnly {
+		t.Fatalf("error-contract-assert=%+v", ec)
+	}
+	rw := cfg.Rules["raises-without-check"]
+	if rw.ErrorAttr != "error_code" || len(rw.ExceptionClasses) != 1 {
+		t.Fatalf("raises-without-check=%+v", rw)
+	}
+	mm := cfg.Rules["missing-mirror-test"]
+	if mm.SourceGlob != "pkg/**/domain/*.py" || mm.MirrorTemplate != "tests/{x}/test_{m}.py" {
+		t.Fatalf("missing-mirror-test=%+v", mm)
+	}
+	rb := cfg.Rules["rbac-mutation-guard"]
+	if len(rb.NameCues) != 1 || rb.NameCues[0] != "acl" {
+		t.Fatalf("rbac-mutation-guard=%+v", rb)
 	}
 }

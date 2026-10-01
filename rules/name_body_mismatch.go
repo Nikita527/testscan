@@ -15,7 +15,8 @@ func (nameBodyMismatch) ID() string { return "name-body-mismatch" }
 func (nameBodyMismatch) NeedsAST() bool { return true }
 
 var (
-	reNameNegativeCue = regexp.MustCompile(`(?i)(^|_)(rejects?|fails?|invalid|raises?|blocked|denied|forbidden|missing|unauthorized|errors?|conflict|not_found|notfound)(_|$)|(^|_)(returns?_)?[45]\d{2}(_|$)|_[45]\d{2}(_|$)|(^|_)empty(_|$)`)
+	// Narrow cues: broad tokens like empty/missing/errors cause FP on descriptive names.
+	reNameNegativeCue = regexp.MustCompile(`(?i)(^|_)(rejects?|fails?|invalid|raises?|forbidden)(_|$)|(^|_)(returns?_)?[45]\d{2}(_|$)|_[45]\d{2}(_|$)|(?i)HTTP_[45]\d{2}`)
 	reBodyHTTPNeg     = regexp.MustCompile(`(?i)\b([45]\d{2}|HTTP_[45]\d{2})\b`)
 )
 

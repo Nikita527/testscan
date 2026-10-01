@@ -36,6 +36,10 @@ func (overbroadEquality) Check(file scan.File) []scan.Finding {
 			if !isOverbroadLiteral(a.Left) && !isOverbroadLiteral(a.Right) {
 				continue
 			}
+			// API contract asserts against response body are intentional full-payload checks.
+			if isResponseBodySide(a.Left) || isResponseBodySide(a.Right) {
+				continue
+			}
 			seen[a.Lineno] = struct{}{}
 			findings = append(findings, scan.Finding{
 				File:     file.Path,
@@ -67,6 +71,30 @@ func isOverbroadLiteral(side string) bool {
 		return true
 	}
 	return countCommasOutsideStrings(s) >= overbroadLiteralMinCommas
+}
+
+// isResponseBodySide is true for response/resp .data / .json() API body attributes.
+func isResponseBodySide(side string) bool {
+	s := strings.TrimSpace(strings.ToLower(side))
+	if s == "" {
+		return false
+	}
+	if strings.HasSuffix(s, ".json()") {
+		return true
+	}
+	switch s {
+	case "response.data", "resp.data":
+		return true
+	}
+	if strings.HasSuffix(s, ".data") {
+		base := strings.TrimSuffix(s, ".data")
+		leaf := base
+		if i := strings.LastIndex(base, "."); i >= 0 {
+			leaf = base[i+1:]
+		}
+		return leaf == "response" || leaf == "resp"
+	}
+	return false
 }
 
 func countCommasOutsideStrings(s string) int {

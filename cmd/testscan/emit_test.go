@@ -18,7 +18,7 @@ func TestWriteFindingsToFile(t *testing.T) {
 		File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty",
 	}}
 
-	if err := writeFindingsToFile(path, findings, 1, "html"); err != nil {
+	if err := writeFindingsToFile(path, findings, scan.CalculateScore(findings, 1), "html"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -35,7 +35,7 @@ func TestEmitFindings_OutputAndOpen(t *testing.T) {
 	stubOpenReport(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.html")
-	if err := emitFindings(nil, 0, "html", path, true); err != nil {
+	if err := emitFindings(nil, scan.CalculateScore(nil, 0), "html", path, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -61,7 +61,7 @@ func TestEmitFindings_OpenDefaultWritesToTestscanDir(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 
-	if err := emitFindings(nil, 0, "html", "", true); err != nil {
+	if err := emitFindings(nil, scan.CalculateScore(nil, 0), "html", "", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +82,7 @@ func TestEmitFindings_OpenDefaultWritesToTestscanDir(t *testing.T) {
 	if err := os.WriteFile(gi, []byte("# keep\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := emitFindings(nil, 0, "html", "", true); err != nil {
+	if err := emitFindings(nil, scan.CalculateScore(nil, 0), "html", "", true); err != nil {
 		t.Fatal(err)
 	}
 	data, err = os.ReadFile(gi)
@@ -104,7 +104,7 @@ func TestEmitFindings_HTMLToStdoutByDefault(t *testing.T) {
 	os.Stdout = w
 	done := make(chan error, 1)
 	go func() {
-		done <- emitFindings(nil, 0, "html", "", false)
+		done <- emitFindings(nil, scan.CalculateScore(nil, 0), "html", "", false)
 		_ = w.Close()
 	}()
 	var buf strings.Builder

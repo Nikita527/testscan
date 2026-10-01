@@ -7,9 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Confirmed metrics + trend:** summary / text / HTML emphasize `confirmed_count` and `confirmed_density` (confirmed = rule precision ≥ `MinPrecisionForDisplay` = 0.3, after baseline + display filter; same `log10(files+1)` density denom as Health Score). `--compare path.json` trends vs a previous JSON report (`improved` / `worsened` / `unchanged` + deltas). If `--compare` is omitted but `--baseline` is set, the baseline file is the compare point. When `--baseline` is set (with or without a separate `--compare`), trend **current** uses pre-baseline confirmed metrics so suppressing known noise cannot fake an “improved” trend; `summary.confirmed_*` remains post-baseline (new issues only). Marked in JSON as `current_pre_baseline`, in text/HTML as `[pre-baseline]` / caption.
+- `--show-grade`: show deprecated Health Score / A–F grade in text and the full HTML ring (grade remains in JSON with `grade_deprecated: true`).
+- `--show-low-precision` / `show-low-precision = true`: emit findings below the 0.3 display floor (default: omit).
+- `--enable ID` / `enable = ["…"]`: turn on opt-in project rules from `rules.Optional()` (off by default). Symmetrical with `--disable`.
+- Opt-in rules: `error-contract-assert`, `raises-without-check`, `missing-mirror-test`, `rbac-mutation-guard` (configurable under `[rules.<id>]`).
+- `wall-clock-in-test`: separate rule for `datetime.now` / `date.today` without freeze (note, precision ~0.50). `sleep-in-test` is only `time.sleep` / `asyncio.sleep` (warning, precision 1.0).
+- HTML report UX: `vscode://file/…:line` links, default grouping **by file → findings** (toggle By rule), repeated messages collapsed to `×N`, hero shows confirmed density + trend.
+
+### Changed
+
+- Display / confirmed floor is **0.3** (`MinPrecisionForDisplay`); findings below the floor are not emitted unless `--show-low-precision`. `--focus` still uses `MinPrecisionForGrade` (0.15) and additionally drops notes / `neverFocusRules`.
+- `name-body-mismatch`: narrower negative-name cues (fewer FP on names like `…_empty_…`).
+- `no-assert`: mid-name no-raise tokens limited to `swallows|ignores|skips|allows|tolerates`; `ok`/`passes`/`accepts` stay edge-only (avoids FN on `test_password_passes_checks`).
+- `overbroad-equality`: skips API-contract compares against `response.data` / `resp.data` / `*.json()`-like bodies.
+- Opt-in rules have catalog precision entries (&lt; 1.0) until corpus-calibrated.
+- `error-contract-assert`: `error-status-only = false` also gates on error-shaped tests (name / `errors` payload), not only non-2xx status asserts.
+- Pipeline order remains: scan → baseline → focus → low-precision filter → score (+ trend) → emit.
+- Daily CI docs: prefer `--diff` + `--baseline` + `--focus` (+ optional `--compare` / `codequality` / `sarif`).
+### Deprecated
+
+- **Health Score / A–F grade** as the primary summary signal: still computed and present in JSON (`health_score`, `grade`, `grade_deprecated: true`); text/HTML default to confirmed density + trend. Use `--show-grade` for the old emphasis. Planned removal of grade as a primary metric in a later release.
+
 ### Planned
 
-- Mutation orchestration (`testscan --mutate` → mutmut/cosmic-ray on `--diff`, survivors as findings) planned for next release — not in this release.
+- Mutation orchestration (`testscan mutate` → mutmut/cosmic-ray on `--diff`, survivors as findings) — separate subcommand; **not** in this release.
 
 ## [0.3.0] - 2026-09-28
 

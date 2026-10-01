@@ -17,6 +17,10 @@ const ScoreDensityK = 2.0
 // / known-broken detectors are fully ignored.
 const MinPrecisionForGrade = 0.15
 
+// MinPrecisionForDisplay is the floor below which findings are omitted from emit
+// by default (use --show-low-precision to restore). Confirmed metrics use this floor.
+const MinPrecisionForDisplay = 0.3
+
 // RulePrecision is the measured/estimated precision for score weighting
 // (from triage + post-fix estimates). Rules below MinPrecisionForGrade get weight 0.
 // Rules absent from the map default to 1.0 (trusted until measured otherwise).
@@ -38,7 +42,25 @@ var RulePrecision = map[string]float64{
 	"commented-assert":    0.55,
 	"overbroad-equality":  0.55,
 	"assert-true":         0.90,
-	"sleep-in-test":       0.50,
+	"sleep-in-test":       1.0,
+	"wall-clock-in-test":  0.50,
+	// Opt-in project rules — conservative until corpus-measured.
+	"error-contract-assert": 0.55,
+	"raises-without-check":  0.50,
+	"missing-mirror-test":   0.70,
+	"rbac-mutation-guard":   0.45,
+}
+
+// Trend compares the current confirmed metrics to a previous compare point.
+type Trend struct {
+	Direction            string  `json:"direction"` // "improved"|"worsened"|"unchanged"
+	PrevConfirmedCount   int     `json:"prev_confirmed_count"`
+	PrevConfirmedDensity float64 `json:"prev_confirmed_density"`
+	DeltaCount           int     `json:"delta_count"`   // current - prev
+	DeltaDensity         float64 `json:"delta_density"` // current - prev
+	// CurrentPreBaseline is true when the trend "current" side was computed before
+	// FilterBaseline (emitted confirmed_* stay post-baseline).
+	CurrentPreBaseline bool `json:"current_pre_baseline,omitempty"`
 }
 
 // Score is the Health Score (0–100) and severity breakdown for a scan.
@@ -55,6 +77,18 @@ type Score struct {
 	WarningsInGrade int
 	// WarningsIgnored is warnings excluded from the grade (precision below floor or 0).
 	WarningsIgnored int
+	// ConfirmedCount is findings with precision ≥ MinPrecisionForDisplay, excluding parse-error.
+	ConfirmedCount int
+	// ConfirmedDensity is ConfirmedCount / densityDenom(Files).
+	ConfirmedDensity float64
+	// Trend is set when comparing against a previous report (--compare / --baseline).
+	Trend *Trend
+	// GradeDeprecated is always true for emit (Health Score is secondary to confirmed metrics).
+	GradeDeprecated bool
+	// ShowGrade enables the deprecated Health Score line / full ring in text and HTML.
+	ShowGrade bool
+	// PathRoot is the project root for vscode:// file links in HTML (display option).
+	PathRoot string
 }
 
 // PrecisionWeight returns the score multiplier for a rule ID.
@@ -68,6 +102,57 @@ func PrecisionWeight(ruleID string) float64 {
 		return 0
 	}
 	return p
+}
+
+// CountConfirmed returns how many findings qualify as confirmed
+// (precision ≥ MinPrecisionForDisplay and not parse-error).
+func CountConfirmed(findings []Finding) int {
+	n := 0
+	for _, f := range findings {
+		if f.Rule == "parse-error" {
+			continue
+		}
+		if RulePrecisionValue(f.Rule) >= MinPrecisionForDisplay {
+			n++
+		}
+	}
+	return n
+}
+
+// densityDenom is shared by Health Score density and ConfirmedDensity.
+func densityDenom(fileCount int) float64 {
+	denom := math.Log10(float64(fileCount) + 1)
+	if denom < 1 {
+		denom = 1
+	}
+	return denom
+}
+
+// ConfirmedDensity returns confirmed_count / max(1, log10(files+1)).
+func ConfirmedDensity(count, fileCount int) float64 {
+	return float64(count) / densityDenom(fileCount)
+}
+
+// ComputeTrend compares current confirmed metrics to a previous point.
+// improved: count↓ OR (count equal AND density↓);
+// worsened: count↑ OR (count equal AND density↑);
+// else unchanged.
+func ComputeTrend(currCount int, currDensity float64, prevCount int, prevDensity float64) Trend {
+	t := Trend{
+		PrevConfirmedCount:   prevCount,
+		PrevConfirmedDensity: prevDensity,
+		DeltaCount:           currCount - prevCount,
+		DeltaDensity:         currDensity - prevDensity,
+	}
+	switch {
+	case currCount < prevCount || (currCount == prevCount && currDensity < prevDensity):
+		t.Direction = "improved"
+	case currCount > prevCount || (currCount == prevCount && currDensity > prevDensity):
+		t.Direction = "worsened"
+	default:
+		t.Direction = "unchanged"
+	}
+	return t
 }
 
 // CalculateScore computes Health Score from findings and the number of scanned files.
@@ -119,10 +204,7 @@ func CalculateScore(findings []Finding, fileCount int) Score {
 		weighted += sevW * pw
 	}
 
-	denom := math.Log10(float64(fileCount) + 1)
-	if denom < 1 {
-		denom = 1
-	}
+	denom := densityDenom(fileCount)
 	density := weighted / denom
 	penalty := int(math.Round(density * ScoreDensityK))
 	if penalty > 80 {
@@ -134,16 +216,20 @@ func CalculateScore(findings []Finding, fileCount int) Score {
 		value = 0
 	}
 
+	confirmed := CountConfirmed(findings)
 	return Score{
-		Value:           value,
-		Grade:           gradeFor(value),
-		Errors:          errors,
-		Warnings:        warnings,
-		Notes:           notes,
-		Files:           fileCount,
-		ParseSkipped:    parseSkipped,
-		WarningsInGrade: warningsInGrade,
-		WarningsIgnored: warningsIgnored,
+		Value:            value,
+		Grade:            gradeFor(value),
+		Errors:           errors,
+		Warnings:         warnings,
+		Notes:            notes,
+		Files:            fileCount,
+		ParseSkipped:     parseSkipped,
+		WarningsInGrade:  warningsInGrade,
+		WarningsIgnored:  warningsIgnored,
+		ConfirmedCount:   confirmed,
+		ConfirmedDensity: ConfirmedDensity(confirmed, fileCount),
+		GradeDeprecated:  true,
 	}
 }
 
@@ -162,7 +248,62 @@ func gradeFor(score int) string {
 	}
 }
 
-// FormatScoreLine returns the text summary line, e.g. "Health Score: 72 (C)".
+// FormatScoreLine returns the text summary. Primary line is confirmed metrics;
+// with ShowGrade, a deprecated Health Score line is appended.
 func FormatScoreLine(s Score) string {
-	return fmt.Sprintf("Health Score: %d (%s)", s.Value, s.Grade)
+	line := fmt.Sprintf("Confirmed: %d (density %.2f)", s.ConfirmedCount, s.ConfirmedDensity)
+	if s.Trend != nil {
+		line += fmt.Sprintf(" · trend %s (Δ %d)", s.Trend.Direction, s.Trend.DeltaCount)
+		if s.Trend.CurrentPreBaseline {
+			line += " [pre-baseline]"
+		}
+	}
+	if s.ShowGrade {
+		line += fmt.Sprintf("\nHealth Score: %d (%s) [deprecated]", s.Value, s.Grade)
+	}
+	return line
+}
+
+// TrendCurrentMetrics returns confirmed count/density used as the trend "current" side.
+// When preBaseline is non-nil, metrics come from that snapshot after the same
+// focus / low-precision filters as the emitted set (so baseline suppression cannot
+// fake an improved trend). A nil preBaseline means use postScore as-is.
+func TrendCurrentMetrics(postScore Score, preBaseline []Finding, focus, filterLowPrecision bool, fileCount int) (count int, dens float64) {
+	if preBaseline == nil {
+		return postScore.ConfirmedCount, postScore.ConfirmedDensity
+	}
+	tf := preBaseline
+	if focus {
+		tf = FilterFocus(tf)
+	}
+	if filterLowPrecision {
+		tf = FilterLowPrecision(tf)
+	}
+	pre := CalculateScore(tf, fileCount)
+	return pre.ConfirmedCount, pre.ConfirmedDensity
+}
+
+// RulePrecisionValue returns the catalog precision for a rule (default 1.0).
+func RulePrecisionValue(ruleID string) float64 {
+	if p, ok := RulePrecision[ruleID]; ok {
+		return p
+	}
+	return 1.0
+}
+
+// FilterLowPrecision drops findings whose rule precision is below MinPrecisionForDisplay.
+// parse-error tool findings are always kept.
+func FilterLowPrecision(findings []Finding) []Finding {
+	out := make([]Finding, 0, len(findings))
+	for _, f := range findings {
+		if f.Rule == "parse-error" {
+			out = append(out, f)
+			continue
+		}
+		if RulePrecisionValue(f.Rule) < MinPrecisionForDisplay {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }

@@ -14,25 +14,30 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality] [--fail-on error|warning|never] [--rule ID] [--disable ID] [--baseline path.json] [--coverage path.json] [--diff base-ref] [--focus] [--workers N] [-o|--output PATH] [--open]"
+const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality] [--fail-on error|warning|never] [--rule ID] [--enable ID] [--disable ID] [--baseline path.json] [--compare path.json] [--show-grade] [--coverage path.json] [--diff base-ref] [--focus] [--show-low-precision] [--workers N] [-o|--output PATH] [--open]"
 
 var errHelp = errors.New("help")
 
 type cliArgs struct {
-	roots      []string
-	format     string
-	failOn     string
-	failOnSet  bool
-	only       []string
-	disable    []string
-	baseline   string
-	coverage   string
-	diff       string
-	focus      bool
-	workers    int
-	workersSet bool
-	output     string
-	open       bool
+	roots               []string
+	format              string
+	failOn              string
+	failOnSet           bool
+	only                []string
+	enable              []string
+	disable             []string
+	baseline            string
+	compare             string
+	showGrade           bool
+	coverage            string
+	diff                string
+	focus               bool
+	showLowPrecision    bool
+	showLowPrecisionSet bool
+	workers             int
+	workersSet          bool
+	output              string
+	open                bool
 }
 
 func main() {
@@ -58,7 +63,7 @@ func main() {
 	}
 	args = applyConfig(args, cfg)
 
-	selected, err := rules.Select(rules.Default(), args.only, args.disable)
+	selected, err := rules.Select(rules.Default(), rules.All(), args.only, args.enable, args.disable)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
 		os.Exit(2)
@@ -107,6 +112,20 @@ func main() {
 	}
 	findings := result.Findings
 
+	// Trend compare point: --compare, else --baseline.
+	// When --baseline is set, trend "current" uses pre-baseline metrics (after
+	// focus / low-precision) so hiding known noise cannot fake an "improved" trend
+	// against a full previous report — including when --compare and --baseline differ.
+	// summary.confirmed_* still reflect post-baseline (new issues only).
+	comparePath := args.compare
+	if comparePath == "" {
+		comparePath = args.baseline
+	}
+	var preBaseline []scan.Finding
+	if args.baseline != "" && comparePath != "" {
+		preBaseline = append([]scan.Finding(nil), findings...)
+	}
+
 	if args.baseline != "" {
 		baseline, err := scan.LoadBaseline(args.baseline)
 		if err != nil {
@@ -124,7 +143,28 @@ func main() {
 		findings = scan.FilterFocus(findings)
 	}
 
-	if err := emitFindings(findings, result.Files, args.format, args.output, args.open); err != nil {
+	if !args.showLowPrecision {
+		findings = scan.FilterLowPrecision(findings)
+	}
+
+	score := scan.CalculateScore(findings, result.Files)
+	if comparePath != "" {
+		prev, err := scan.LoadComparePoint(comparePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
+			os.Exit(2)
+		}
+		currCount, currDens := scan.TrendCurrentMetrics(
+			score, preBaseline, args.focus, !args.showLowPrecision, result.Files,
+		)
+		trend := scan.ComputeTrend(currCount, currDens, prev.ConfirmedCount, prev.ConfirmedDensity)
+		trend.CurrentPreBaseline = preBaseline != nil
+		score.Trend = &trend
+	}
+	score.ShowGrade = args.showGrade
+	score.PathRoot = cwd
+
+	if err := emitFindings(findings, score, args.format, args.output, args.open); err != nil {
 		fmt.Fprintf(os.Stderr, "testscan: %v\n", err)
 		os.Exit(2)
 	}
@@ -132,7 +172,7 @@ func main() {
 	os.Exit(exitCode(findings, args.failOn))
 }
 
-// applyConfig: CLI overrides config; disable = config ∪ CLI.
+// applyConfig: CLI overrides config; disable/enable = config ∪ CLI.
 func applyConfig(args cliArgs, cfg config.Config) cliArgs {
 	if !args.failOnSet && cfg.FailOn != "" {
 		args.failOn = cfg.FailOn
@@ -140,8 +180,14 @@ func applyConfig(args cliArgs, cfg config.Config) cliArgs {
 	if !args.workersSet && cfg.Workers > 0 {
 		args.workers = cfg.Workers
 	}
+	if !args.showLowPrecisionSet && cfg.ShowLowPrecision {
+		args.showLowPrecision = true
+	}
 	if len(cfg.Disable) > 0 {
 		args.disable = append(append([]string{}, cfg.Disable...), args.disable...)
+	}
+	if len(cfg.Enable) > 0 {
+		args.enable = append(append([]string{}, cfg.Enable...), args.enable...)
 	}
 	if len(args.roots) == 0 {
 		if len(cfg.Paths) > 0 {
@@ -191,6 +237,14 @@ func parseArgs(argv []string) (cliArgs, error) {
 			out.only = append(out.only, argv[i])
 		case strings.HasPrefix(a, "--rule="):
 			out.only = append(out.only, strings.TrimPrefix(a, "--rule="))
+		case a == "--enable":
+			i++
+			if i >= len(argv) {
+				return cliArgs{}, fmt.Errorf("missing value for --enable")
+			}
+			out.enable = append(out.enable, argv[i])
+		case strings.HasPrefix(a, "--enable="):
+			out.enable = append(out.enable, strings.TrimPrefix(a, "--enable="))
 		case a == "--disable":
 			i++
 			if i >= len(argv) {
@@ -207,6 +261,16 @@ func parseArgs(argv []string) (cliArgs, error) {
 			out.baseline = argv[i]
 		case strings.HasPrefix(a, "--baseline="):
 			out.baseline = strings.TrimPrefix(a, "--baseline=")
+		case a == "--compare":
+			i++
+			if i >= len(argv) {
+				return cliArgs{}, fmt.Errorf("missing value for --compare")
+			}
+			out.compare = argv[i]
+		case strings.HasPrefix(a, "--compare="):
+			out.compare = strings.TrimPrefix(a, "--compare=")
+		case a == "--show-grade":
+			out.showGrade = true
 		case a == "--coverage":
 			i++
 			if i >= len(argv) {
@@ -225,6 +289,9 @@ func parseArgs(argv []string) (cliArgs, error) {
 			out.diff = strings.TrimPrefix(a, "--diff=")
 		case a == "--focus":
 			out.focus = true
+		case a == "--show-low-precision":
+			out.showLowPrecision = true
+			out.showLowPrecisionSet = true
 		case a == "--workers":
 			i++
 			if i >= len(argv) {
@@ -271,8 +338,7 @@ func parseArgs(argv []string) (cliArgs, error) {
 	return out, nil
 }
 
-func writeFindings(w io.Writer, findings []scan.Finding, fileCount int, format string) error {
-	score := scan.CalculateScore(findings, fileCount)
+func writeFindings(w io.Writer, findings []scan.Finding, score scan.Score, format string) error {
 	switch format {
 	case "json":
 		return scan.WriteJSON(w, findings, score)

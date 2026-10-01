@@ -11,7 +11,7 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-const gitignoreBody = "*\n!.gitignore\n"
+const gitignoreBody = "*\n"
 
 func reportDirPath() string {
 	return filepath.Join(".testscan", "reports")
@@ -27,13 +27,13 @@ var openReport = openHTMLReport
 // emitFindings writes the report to stdout, or to -o/--output when set.
 // --open opens the HTML file in a browser (requires a file path: -o or
 // .testscan/reports/report_<timestamp>.html).
-func emitFindings(findings []scan.Finding, fileCount int, format, output string, open bool) error {
+func emitFindings(findings []scan.Finding, score scan.Score, format, output string, open bool) error {
 	if open && format != "html" {
 		return fmt.Errorf("--open requires --format html")
 	}
 
 	if output != "" {
-		if err := writeFindingsToFile(output, findings, fileCount, format); err != nil {
+		if err := writeFindingsToFile(output, findings, score, format); err != nil {
 			return err
 		}
 		if open {
@@ -47,13 +47,13 @@ func emitFindings(findings []scan.Finding, fileCount int, format, output string,
 		if err != nil {
 			return err
 		}
-		if err := writeFindingsToFile(path, findings, fileCount, "html"); err != nil {
+		if err := writeFindingsToFile(path, findings, score, "html"); err != nil {
 			return err
 		}
 		return openWrittenReport(path)
 	}
 
-	return writeFindings(os.Stdout, findings, fileCount, format)
+	return writeFindings(os.Stdout, findings, score, format)
 }
 
 // prepareDefaultHTMLReport ensures .testscan/reports/ (+ .gitignore) and
@@ -80,7 +80,7 @@ func ensureReportDir(dir string) error {
 	return os.WriteFile(gi, []byte(gitignoreBody), 0o644)
 }
 
-func writeFindingsToFile(path string, findings []scan.Finding, fileCount int, format string) error {
+func writeFindingsToFile(path string, findings []scan.Finding, score scan.Score, format string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func writeFindingsToFile(path string, findings []scan.Finding, fileCount int, fo
 	if err != nil {
 		return err
 	}
-	err = writeFindings(f, findings, fileCount, format)
+	err = writeFindings(f, findings, score, format)
 	closeErr := f.Close()
 	if err != nil {
 		return err

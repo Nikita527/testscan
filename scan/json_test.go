@@ -29,6 +29,12 @@ func TestWriteJSON(t *testing.T) {
 	if report.Summary.Files != 3 || report.Summary.Errors != 1 {
 		t.Fatalf("unexpected summary: %+v", report.Summary)
 	}
+	if !report.Summary.GradeDeprecated {
+		t.Fatal("want grade_deprecated true")
+	}
+	if report.Summary.ConfirmedCount != score.ConfirmedCount || report.Summary.ConfirmedDensity != score.ConfirmedDensity {
+		t.Fatalf("confirmed mismatch: %+v vs score %+v", report.Summary, score)
+	}
 	if len(report.Findings) != 1 || report.Findings[0].Rule != "empty-test" {
 		t.Fatalf("findings: %+v", report.Findings)
 	}

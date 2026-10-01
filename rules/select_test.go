@@ -8,15 +8,16 @@ import (
 )
 
 func TestSelect(t *testing.T) {
-	all := rules.Default()
+	defaults := rules.Default()
+	all := rules.All()
 
-	t.Run("empty_only_returns_all_minus_disable", func(t *testing.T) {
-		got, err := rules.Select(all, nil, []string{"no-assert", "empty-test"})
+	t.Run("empty_only_returns_defaults_minus_disable", func(t *testing.T) {
+		got, err := rules.Select(defaults, all, nil, nil, []string{"no-assert", "empty-test"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(got) != len(all)-2 {
-			t.Fatalf("got %d rules, want %d", len(got), len(all)-2)
+		if len(got) != len(defaults)-2 {
+			t.Fatalf("got %d rules, want %d", len(got), len(defaults)-2)
 		}
 		for _, r := range got {
 			if r.ID() == "no-assert" || r.ID() == "empty-test" {
@@ -26,7 +27,7 @@ func TestSelect(t *testing.T) {
 	})
 
 	t.Run("only_filters", func(t *testing.T) {
-		got, err := rules.Select(all, []string{"assert-equals-same"}, nil)
+		got, err := rules.Select(defaults, all, []string{"assert-equals-same"}, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -35,26 +36,80 @@ func TestSelect(t *testing.T) {
 		}
 	})
 
+	t.Run("enable_optional", func(t *testing.T) {
+		got, err := rules.Select(defaults, all, nil, []string{"error-contract-assert"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != len(defaults)+1 {
+			t.Fatalf("got %d rules, want %d", len(got), len(defaults)+1)
+		}
+		found := false
+		for _, r := range got {
+			if r.ID() == "error-contract-assert" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("optional rule missing: %v", ids(got))
+		}
+	})
+
+	t.Run("enable_disable_conflict", func(t *testing.T) {
+		_, err := rules.Select(defaults, all, nil, []string{"error-contract-assert"}, []string{"error-contract-assert"})
+		if err == nil {
+			t.Fatal("want conflict error")
+		}
+	})
+
 	t.Run("conflict", func(t *testing.T) {
-		_, err := rules.Select(all, []string{"todo-test"}, []string{"todo-test"})
+		_, err := rules.Select(defaults, all, []string{"todo-test"}, nil, []string{"todo-test"})
 		if err == nil {
 			t.Fatal("want conflict error")
 		}
 	})
 
 	t.Run("unknown_rule", func(t *testing.T) {
-		_, err := rules.Select(all, []string{"no-such"}, nil)
+		_, err := rules.Select(defaults, all, []string{"no-such"}, nil, nil)
 		if err == nil {
 			t.Fatal("want unknown rule error")
 		}
 	})
 
 	t.Run("unknown_disable", func(t *testing.T) {
-		_, err := rules.Select(all, nil, []string{"no-such"})
+		_, err := rules.Select(defaults, all, nil, nil, []string{"no-such"})
 		if err == nil {
 			t.Fatal("want unknown disable error")
 		}
 	})
+
+	t.Run("unknown_enable", func(t *testing.T) {
+		_, err := rules.Select(defaults, all, nil, []string{"no-such"}, nil)
+		if err == nil {
+			t.Fatal("want unknown enable error")
+		}
+	})
+
+	t.Run("only_can_pick_optional", func(t *testing.T) {
+		got, err := rules.Select(defaults, all, []string{"missing-mirror-test"}, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].ID() != "missing-mirror-test" {
+			t.Fatalf("got %v", ids(got))
+		}
+	})
+}
+
+func TestOptionalAndAll(t *testing.T) {
+	opt := rules.Optional()
+	if len(opt) != 4 {
+		t.Fatalf("Optional=%d, want 4", len(opt))
+	}
+	all := rules.All()
+	if len(all) != len(rules.Default())+len(opt) {
+		t.Fatalf("All=%d, want %d", len(all), len(rules.Default())+len(opt))
+	}
 }
 
 func ids(rs []scan.Rule) []string {

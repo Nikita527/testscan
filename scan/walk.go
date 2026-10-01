@@ -138,3 +138,23 @@ func relToRoot(path, root string) string {
 	}
 	return filepath.ToSlash(path)
 }
+
+// MakeIgnoreFunc returns a predicate for project-wide walks: skipDirs, exclude globs,
+// and optional .gitignore (loaded once). name is the path base; rel is slash-relative to root.
+func MakeIgnoreFunc(root string, exclude []string, respectGitignore bool) func(name, rel string, isDir bool) bool {
+	var gi *gitIgnore
+	if respectGitignore {
+		gi = findGitIgnore(root)
+	}
+	return func(name, rel string, isDir bool) bool {
+		if isDir {
+			if _, ok := skipDirs[name]; ok {
+				return true
+			}
+		}
+		if gi != nil && gi.ignored(rel, isDir) {
+			return true
+		}
+		return MatchAny(exclude, rel) || MatchAny(exclude, name)
+	}
+}

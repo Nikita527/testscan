@@ -5,29 +5,59 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-// ApplyConfig adjusts Default-selected rules from project config
-// (e.g. only-happy-path min-tests / mode / coverage). Severity is applied later in scan.Run.
+// ApplyConfig adjusts selected rules from project config
+// (only-happy-path options and opt-in project-rule options). Severity is applied later in scan.Run.
 func ApplyConfig(selected []scan.Rule, cfg config.Config) []scan.Rule {
 	if len(selected) == 0 {
-		return selected
-	}
-	rc, ok := cfg.Rules["only-happy-path"]
-	if !ok {
-		return selected
-	}
-	if rc.MinTests <= 0 && rc.Mode == "" && rc.Coverage == "" && len(rc.NegativeNames) == 0 {
 		return selected
 	}
 	out := make([]scan.Rule, len(selected))
 	copy(out, selected)
 	for i, r := range out {
-		if r.ID() == "only-happy-path" {
+		rc, ok := cfg.Rules[r.ID()]
+		switch r.ID() {
+		case "only-happy-path":
+			if !ok {
+				continue
+			}
+			if rc.MinTests <= 0 && rc.Mode == "" && rc.Coverage == "" && len(rc.NegativeNames) == 0 {
+				continue
+			}
 			out[i] = NewOnlyHappyPathOpts(OnlyHappyPathOpts{
 				MinTests:      rc.MinTests,
 				Mode:          rc.Mode,
 				CoveragePath:  rc.Coverage,
 				NegativeNames: rc.NegativeNames,
 			})
+		case "error-contract-assert":
+			opts := ErrorContractAssertOpts{}
+			if ok {
+				opts.ErrorCodePath = rc.ErrorCodePath
+				opts.ErrorStatusOnly = rc.ErrorStatusOnly
+			}
+			out[i] = NewErrorContractAssert(opts)
+		case "raises-without-check":
+			opts := RaisesWithoutCheckOpts{}
+			if ok {
+				opts.ErrorAttr = rc.ErrorAttr
+				opts.ExceptionClasses = rc.ExceptionClasses
+			}
+			out[i] = NewRaisesWithoutCheck(opts)
+		case "missing-mirror-test":
+			opts := MissingMirrorTestOpts{}
+			if ok {
+				opts.SourceGlob = rc.SourceGlob
+				opts.MirrorTemplate = rc.MirrorTemplate
+			}
+			out[i] = NewMissingMirrorTest(opts)
+		case "rbac-mutation-guard":
+			opts := RBACMutationGuardOpts{}
+			if ok {
+				opts.NameCues = rc.NameCues
+				opts.MutatingMethods = rc.MutatingMethods
+				opts.ForbiddenSignals = rc.ForbiddenSignals
+			}
+			out[i] = NewRBACMutationGuard(opts)
 		}
 	}
 	return out

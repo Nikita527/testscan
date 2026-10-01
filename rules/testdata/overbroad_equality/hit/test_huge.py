@@ -1,6 +1,6 @@
 def test_huge_payload():
-    resp = client.get("/item")
-    assert resp.json() == {
+    payload = build_expected()
+    assert payload == {
         "a": 1,
         "b": 2,
         "c": 3,

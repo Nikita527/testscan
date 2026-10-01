@@ -26,8 +26,8 @@ func TestCalculateScore_GradeThresholds(t *testing.T) {
 		{100, "A"}, {90, "A"}, {89, "B"}, {75, "B"}, {74, "C"},
 		{60, "C"}, {59, "D"}, {45, "D"}, {44, "F"}, {0, "F"},
 	} {
-		line := scan.FormatScoreLine(scan.Score{Value: tc.v, Grade: tc.g})
-		want := "Health Score: " + strconv.Itoa(tc.v) + " (" + tc.g + ")"
+		line := scan.FormatScoreLine(scan.Score{Value: tc.v, Grade: tc.g, ShowGrade: true})
+		want := "Confirmed: 0 (density 0.00)\nHealth Score: " + strconv.Itoa(tc.v) + " (" + tc.g + ") [deprecated]"
 		if line != want {
 			t.Errorf("got %q want %q", line, want)
 		}
@@ -173,9 +173,124 @@ func TestCalculateScore_ParsePenalty(t *testing.T) {
 }
 
 func TestFormatScoreLine(t *testing.T) {
-	got := scan.FormatScoreLine(scan.Score{Value: 72, Grade: "C"})
-	if got != "Health Score: 72 (C)" {
+	got := scan.FormatScoreLine(scan.Score{ConfirmedCount: 5, ConfirmedDensity: 2.5})
+	if got != "Confirmed: 5 (density 2.50)" {
 		t.Fatalf("got %q", got)
+	}
+	withTrend := scan.FormatScoreLine(scan.Score{
+		ConfirmedCount: 3, ConfirmedDensity: 1.5,
+		Trend: &scan.Trend{Direction: "improved", DeltaCount: -2},
+	})
+	if withTrend != "Confirmed: 3 (density 1.50) · trend improved (Δ -2)" {
+		t.Fatalf("got %q", withTrend)
+	}
+	withPre := scan.FormatScoreLine(scan.Score{
+		ConfirmedCount: 0, ConfirmedDensity: 0,
+		Trend: &scan.Trend{Direction: "unchanged", DeltaCount: 0, CurrentPreBaseline: true},
+	})
+	if withPre != "Confirmed: 0 (density 0.00) · trend unchanged (Δ 0) [pre-baseline]" {
+		t.Fatalf("got %q", withPre)
+	}
+	withGrade := scan.FormatScoreLine(scan.Score{
+		ConfirmedCount: 1, ConfirmedDensity: 0.5,
+		Value: 72, Grade: "C", ShowGrade: true,
+	})
+	want := "Confirmed: 1 (density 0.50)\nHealth Score: 72 (C) [deprecated]"
+	if withGrade != want {
+		t.Fatalf("got %q", withGrade)
+	}
+}
+
+func TestCountConfirmed(t *testing.T) {
+	findings := []scan.Finding{
+		{Rule: "empty-test"},         // 1.0
+		{Rule: "name-body-mismatch"}, // 0.35
+		{Rule: "weak-assert"},        // 0.25 < 0.3
+		{Rule: "no-assert"},          // 0.0
+		{Rule: "parse-error"},        // excluded
+	}
+	if n := scan.CountConfirmed(findings); n != 2 {
+		t.Fatalf("CountConfirmed=%d, want 2", n)
+	}
+}
+
+func TestConfirmedDensity(t *testing.T) {
+	// files=9 → log10(10)=1
+	d := scan.ConfirmedDensity(4, 9)
+	if d != 4.0 {
+		t.Fatalf("density=%v, want 4", d)
+	}
+	// files=0 → denom max(1, log10(1))=1
+	d0 := scan.ConfirmedDensity(3, 0)
+	if d0 != 3.0 {
+		t.Fatalf("density=%v, want 3", d0)
+	}
+}
+
+func TestComputeTrend(t *testing.T) {
+	cases := []struct {
+		name         string
+		currN, prevN int
+		currD, prevD float64
+		wantDir      string
+		wantDelta    int
+	}{
+		{"count_down", 3, 5, 1.0, 2.0, "improved", -2},
+		{"count_up", 7, 5, 3.0, 2.0, "worsened", 2},
+		{"equal_density_down", 5, 5, 1.0, 2.0, "improved", 0},
+		{"equal_density_up", 5, 5, 3.0, 2.0, "worsened", 0},
+		{"unchanged", 5, 5, 2.0, 2.0, "unchanged", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := scan.ComputeTrend(tc.currN, tc.currD, tc.prevN, tc.prevD)
+			if tr.Direction != tc.wantDir || tr.DeltaCount != tc.wantDelta {
+				t.Fatalf("got dir=%s Δ=%d, want %s Δ=%d", tr.Direction, tr.DeltaCount, tc.wantDir, tc.wantDelta)
+			}
+			if tr.PrevConfirmedCount != tc.prevN || tr.PrevConfirmedDensity != tc.prevD {
+				t.Fatalf("prev fields: %+v", tr)
+			}
+		})
+	}
+}
+
+func TestTrendCurrentMetrics_PreBaseline(t *testing.T) {
+	post := scan.CalculateScore(nil, 10) // confirmed 0 after baseline
+	pre := []scan.Finding{
+		{Rule: "empty-test", Severity: "error", File: "a.py"},
+		{Rule: "empty-test", Severity: "error", File: "b.py"},
+		{Rule: "no-assert", Severity: "note", File: "c.py"}, // precision 0 → dropped by LP filter
+	}
+	count, dens := scan.TrendCurrentMetrics(post, pre, false, true, 10)
+	if count != 2 {
+		t.Fatalf("pre-baseline confirmed=%d, want 2", count)
+	}
+	wantDens := scan.ConfirmedDensity(2, 10)
+	if dens != wantDens {
+		t.Fatalf("dens=%v, want %v", dens, wantDens)
+	}
+	c2, d2 := scan.TrendCurrentMetrics(post, nil, false, true, 10)
+	if c2 != 0 || d2 != 0 {
+		t.Fatalf("nil pre should use post score, got %d %v", c2, d2)
+	}
+}
+
+func TestCalculateScore_ConfirmedFields(t *testing.T) {
+	findings := []scan.Finding{
+		{Severity: "error", Rule: "empty-test"},
+		{Severity: "note", Rule: "name-body-mismatch"},
+		{Severity: "note", Rule: "weak-assert"},
+		{Severity: "note", Rule: "parse-error"},
+	}
+	s := scan.CalculateScore(findings, 9)
+	if s.ConfirmedCount != 2 {
+		t.Fatalf("ConfirmedCount=%d, want 2", s.ConfirmedCount)
+	}
+	if s.ConfirmedDensity != 2.0 {
+		t.Fatalf("ConfirmedDensity=%v, want 2", s.ConfirmedDensity)
+	}
+	if !s.GradeDeprecated {
+		t.Fatal("GradeDeprecated should be true")
 	}
 }
 
@@ -214,5 +329,26 @@ func TestCalculateScore_LargeRepoHighPrecision(t *testing.T) {
 	}
 	if s.Value < 60 {
 		t.Fatalf("score %d dropped below C threshold", s.Value)
+	}
+}
+
+func TestFilterLowPrecision(t *testing.T) {
+	in := []scan.Finding{
+		{Rule: "no-assert", Severity: "note"},
+		{Rule: "empty-test", Severity: "error"},
+		{Rule: "weak-assert", Severity: "note"},        // 0.25 < 0.3
+		{Rule: "name-body-mismatch", Severity: "note"}, // 0.35
+		{Rule: "parse-error", Severity: "note"},
+	}
+	got := scan.FilterLowPrecision(in)
+	if len(got) != 3 {
+		t.Fatalf("got %d, want 3: %v", len(got), got)
+	}
+	for _, f := range got {
+		switch f.Rule {
+		case "empty-test", "name-body-mismatch", "parse-error":
+		default:
+			t.Fatalf("unexpected kept rule %q", f.Rule)
+		}
 	}
 }

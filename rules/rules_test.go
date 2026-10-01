@@ -43,6 +43,7 @@ func TestCorpus(t *testing.T) {
 		{"weak-assert", rules.NewWeakAssert(), "testdata/weak_assert", "test_weak.py", "weak-assert", 3},
 		{"mock-tautology", rules.NewMockTautology(), "testdata/mock_tautology", "test_tautology.py", "mock-tautology", 3},
 		{"sleep-in-test", rules.NewSleepInTest(), "testdata/sleep_in_test", "test_sleep.py", "sleep-in-test", 5},
+		{"wall-clock-in-test", rules.NewWallClockInTest(), "testdata/wall_clock_in_test", "test_now.py", "wall-clock-in-test", 5},
 		{"skip-without-reason", rules.NewSkipWithoutReason(), "testdata/skip_without_reason", "test_skip.py", "skip-without-reason", 5},
 		{"near-duplicate-test", rules.NewNearDuplicateTest(), "testdata/near_duplicate_test", "test_dup.py", "near-duplicate-test", 6},
 		{"name-body-mismatch", rules.NewNameBodyMismatch(), "testdata/name_body_mismatch", "test_mismatch.py", "name-body-mismatch", 1},
@@ -50,6 +51,9 @@ func TestCorpus(t *testing.T) {
 		{"expected-recomputed", rules.NewExpectedRecomputed(), "testdata/expected_recomputed", "test_recomputed.py", "expected-recomputed", 3},
 		{"commented-assert", rules.NewCommentedAssert(), "testdata/commented_assert", "test_commented.py", "commented-assert", 3},
 		{"overbroad-equality", rules.NewOverbroadEquality(), "testdata/overbroad_equality", "test_huge.py", "overbroad-equality", 3},
+		{"error-contract-assert", rules.NewErrorContractAssert(rules.ErrorContractAssertOpts{}), "testdata/error_contract_assert", "test_status_only.py", "error-contract-assert", 1},
+		{"raises-without-check", rules.NewRaisesWithoutCheck(rules.RaisesWithoutCheckOpts{}), "testdata/raises_without_check", "test_bare_raises.py", "raises-without-check", 5},
+		{"rbac-mutation-guard", rules.NewRBACMutationGuard(rules.RBACMutationGuardOpts{}), "testdata/rbac_mutation_guard", "test_rbac_open.py", "rbac-mutation-guard", 1},
 	}
 
 	for _, tc := range cases {
@@ -103,8 +107,8 @@ func TestCorpus(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	got := rules.Default()
-	if len(got) != 27 {
-		t.Fatalf("got %d rules, want 27", len(got))
+	if len(got) != 28 {
+		t.Fatalf("got %d rules, want 28", len(got))
 	}
 }
 
