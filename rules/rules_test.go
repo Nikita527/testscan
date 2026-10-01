@@ -940,3 +940,23 @@ func TestAssertInEmptyableLoop_RangeConstClean(t *testing.T) {
 		t.Fatalf("range(10) must not hit emptyable-loop, got %v", got)
 	}
 }
+
+func TestCommentedAssert_StringPrefixes(t *testing.T) {
+	rule := rules.NewCommentedAssert()
+	cases := []struct {
+		src string
+		hit bool
+	}{
+		{`# assert msg == f"hello {name}"`, true},
+		{`# assert data == b"raw"`, true},
+		{`# assert p == Rb'x'`, true},
+		{`# assert on_commit invalidate ran`, false},
+		{`# assert foo bar"baz"`, false},
+	}
+	for _, tc := range cases {
+		got := rule.Check(scan.File{Path: "t.py", Content: []byte(tc.src + "\n")})
+		if (len(got) == 1) != tc.hit {
+			t.Errorf("%q: hit=%v, want %v", tc.src, len(got) == 1, tc.hit)
+		}
+	}
+}

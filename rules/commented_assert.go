@@ -73,7 +73,12 @@ func exprLooksLikeCode(s string) bool {
 		switch {
 		case c == ' ' || c == '\t':
 			i++
-		case c == '"' || c == '\'':
+		case c == '"' || c == '\'' || isStringPrefixAt(s, i):
+			// A string prefix (f, b, r, u, rb, br, fr, rf) is part of the literal.
+			for s[i] != '"' && s[i] != '\'' {
+				i++
+			}
+			c = s[i]
 			j := i + 1
 			for j < len(s) && s[j] != c {
 				if s[j] == 0x5c {
@@ -123,6 +128,26 @@ func exprLooksLikeCode(s string) bool {
 		}
 	}
 	return true
+}
+
+// isStringPrefixAt reports whether s[i:] starts a string literal prefix
+// (f, b, r, u, rb, br, fr, rf; case-insensitive) directly followed by a quote,
+// and s[i] is not in the middle of a longer identifier.
+func isStringPrefixAt(s string, i int) bool {
+	if i > 0 && (isIdentByte(s[i-1]) || s[i-1] == '.') {
+		return false
+	}
+	for n := 1; n <= 2 && i+n < len(s); n++ {
+		if s[i+n] != '"' && s[i+n] != '\'' {
+			continue
+		}
+		switch strings.ToLower(s[i : i+n]) {
+		case "f", "b", "r", "u", "rb", "br", "fr", "rf":
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 func isIdentByte(c byte) bool {

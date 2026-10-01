@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -495,5 +499,68 @@ func TestParseArgs_AgentFormat(t *testing.T) {
 	a, err := parseArgs([]string{"--format", "agent"})
 	if err != nil || a.format != "agent" {
 		t.Fatalf("got %+v, %v", a, err)
+	}
+}
+
+// TestHelperMain re-executes main() in a subprocess (main calls os.Exit).
+func TestHelperMain(t *testing.T) {
+	if os.Getenv("TESTSCAN_HELPER_MAIN") != "1" {
+		t.Skip("helper process only")
+	}
+	var args []string
+	for i, a := range os.Args {
+		if a == "--" {
+			args = os.Args[i+1:]
+			break
+		}
+	}
+	os.Args = append([]string{"testscan"}, args...)
+	main()
+}
+
+func TestCompare_LegacyPointIsIncomparable(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test_x.py"), []byte("def test_x():\n    assert 1 == 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prev := filepath.Join(dir, "prev.json")
+	if err := os.WriteFile(prev, []byte(`{"summary":{"confirmed_count":5,"confirmed_density":1.2},"findings":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(format string) string {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestHelperMain$", "--", dir, "--compare", prev, "--format", format, "--fail-on", "never")
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "TESTSCAN_HELPER_MAIN=1")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("run %s: %v", format, err)
+		}
+		return string(out)
+	}
+
+	if text := run("text"); !strings.Contains(text, "trend: n/a") {
+		t.Fatalf("text output missing %q:\n%s", "trend: n/a", text)
+	}
+
+	var doc struct {
+		Trend struct {
+			Direction string `json:"direction"`
+		} `json:"trend"`
+		Summary struct {
+			Trend struct {
+				Direction string `json:"direction"`
+			} `json:"trend"`
+		} `json:"summary"`
+	}
+	raw := run("json")
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, raw)
+	}
+	got := doc.Trend.Direction
+	if got == "" {
+		got = doc.Summary.Trend.Direction
+	}
+	if got != "incomparable" {
+		t.Fatalf("trend.direction = %q, want incomparable\n%s", got, raw)
 	}
 }

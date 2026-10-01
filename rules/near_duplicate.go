@@ -96,41 +96,33 @@ func (nearDuplicateTest) Check(file scan.File) []scan.Finding {
 }
 
 func refineNearDupClusters(group []nearDupMember) [][]nearDupMember {
-	n := len(group)
-	parent := make([]int, n)
-	for i := range parent {
-		parent[i] = i
-	}
-	var find func(int) int
-	find = func(i int) int {
-		if parent[i] != i {
-			parent[i] = find(parent[i])
-		}
-		return parent[i]
-	}
-	union := func(a, b int) {
-		ra, rb := find(a), find(b)
-		if ra != rb {
-			parent[rb] = ra
-		}
-	}
-
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			if nearDupCompatible(group[i], group[j]) {
-				union(i, j)
+	// Compatibility is not transitive (empty docstring / polarity / SUT match
+	// anything), so a candidate joins a cluster only if it is compatible with
+	// EVERY member already in it. Deterministic order: by line number.
+	sorted := append([]nearDupMember(nil), group...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].t.Lineno < sorted[j].t.Lineno
+	})
+	var out [][]nearDupMember
+	for _, m := range sorted {
+		placed := false
+		for ci, c := range out {
+			ok := true
+			for _, o := range c {
+				if !nearDupCompatible(o, m) {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				out[ci] = append(out[ci], m)
+				placed = true
+				break
 			}
 		}
-	}
-
-	buckets := map[int][]nearDupMember{}
-	for i, m := range group {
-		r := find(i)
-		buckets[r] = append(buckets[r], m)
-	}
-	out := make([][]nearDupMember, 0, len(buckets))
-	for _, b := range buckets {
-		out = append(out, b)
+		if !placed {
+			out = append(out, []nearDupMember{m})
+		}
 	}
 	return out
 }

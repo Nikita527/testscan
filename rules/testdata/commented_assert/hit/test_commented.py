@@ -9,3 +9,5 @@ def test_commented_more():
     # assert result.ok, "should be fine"
     # self.assertEqual(result.count, 2)
     # assert_called_once_with(1)
+    # assert msg == f"hello {name}"
+    # assert data == b"raw"

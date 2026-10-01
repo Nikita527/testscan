@@ -171,7 +171,7 @@ func main() {
 		currCount, currDens := scan.TrendCurrentMetrics(
 			score, preBaseline, display, result.Tests,
 		)
-		trend := scan.ComputeTrend(currCount, currDens, prev.ActionableCount, prev.ActionableDensity)
+		trend := scan.ComputeTrendPoint(currCount, currDens, result.Tests, prev)
 		trend.CurrentPreBaseline = preBaseline != nil
 		score.Trend = &trend
 	}

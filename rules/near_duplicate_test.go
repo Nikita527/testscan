@@ -226,3 +226,43 @@ class TestB:
 		})
 	}
 }
+
+// Compatibility is not transitive: an undocumented test matches both documented
+// scenarios, but the two documented ones must not be merged through it.
+func TestNearDuplicate_NoTransitiveChaining(t *testing.T) {
+	src := `def test_a(client):
+    """rejects expired"""
+    r = client.get("/a")
+    assert r.status_code == 404
+
+
+def test_b(client):
+    r = client.get("/b")
+    assert r.status_code == 404
+
+
+def test_c(client):
+    """rejects revoked"""
+    r = client.get("/c")
+    assert r.status_code == 404
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test_x.py"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := testRun(t, []string{dir}, rules.NewNearDuplicateTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("want exactly one pair finding, got %+v", res.Findings)
+	}
+	f := res.Findings[0]
+	if strings.Contains(f.Message, "3 tests") {
+		t.Fatalf("A and C must not form one cluster: %q", f.Message)
+	}
+	names := map[string]bool{f.QualName: true, f.RelatedQualName: true}
+	if names["test_a"] && names["test_c"] {
+		t.Fatalf("pair must not contain both A and C: %+v", f)
+	}
+}
