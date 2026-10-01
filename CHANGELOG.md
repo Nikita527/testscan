@@ -13,19 +13,57 @@ Honest metrics and a quiet default: only rules with **measured** precision are t
 
 - **Focus is now the default.** The old `--focus` filter (error/warning only, no notes / tool errors / zero-precision or demoted rules) always applies. Use **`--all`** (or `all = true` in config) to get the old full output; `--focus` is still accepted but is a deprecated no-op that prints a warning on stderr.
 - **Precision tiers replace "confirmed".** Rules are `actionable` (measured, Wilson 95% lower bound >= 0.7, N >= 20), `provisional` (measured, precision >= 0.8, N >= 5) or `low` (everything else). By default only actionable and provisional findings are shown; `--show-low-precision` adds `low` (focus stays on), `--all` shows everything. Thresholds are exported constants in `scan/score.go`.
-- **Unknown / unmeasured rules are no longer trusted by default.** Every catalog entry that is only *estimated* (and every rule missing from the catalog) is `low`, so a default run is empty until precision is measured with `testscan precision` and added to the catalog. Gate with `--all` if you need the previous behaviour.
+- **Unknown / unmeasured rules are no longer trusted by default.** Every catalog entry that is only *estimated* (and every rule missing from the catalog) is `low`, so its findings are hidden by default until precision is measured (label findings in the HTML report → `testscan precision`) and the catalog entry becomes `measured`. The shipped catalog is measured on the mp-be corpus (see below). Use `--all` if you need the previous behaviour.
 - **Density is now per 100 tests**, not per `log10(files+1)`: `actionable_per_100_tests = actionable_count * 100 / tests` (0 when no tests were counted). Tests are counted from the AST, so they are 0 when no selected rule needs the AST.
 - **JSON summary:** new `actionable_count`, `actionable_per_100_tests`, `provisional_count`, `shown_count`, `tests`. `confirmed_count` / `confirmed_density` are **deprecated** aliases of `actionable_count` / `actionable_per_100_tests` (note: the values changed meaning) and will be removed in the next release. Trend gains `prev_actionable_count` / `prev_actionable_density`; `prev_confirmed_*` stay as deprecated aliases with the same values. `--compare` still reads older reports that only have `confirmed_*` (count-only comparison, so the first trend after upgrading is approximate).
 - **JSON findings** gain additive `tier` and `precision` (`value`, `n`, `source`, `wilson_lower`) fields.
 - **Health Score / A-F grade removed from text and HTML.** JSON keeps `health_score`, `grade` and `grade_deprecated: true` for one more release. `--show-grade` is a deprecated no-op (stderr warning).
 - **Text output** starts with a header line (`testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files`) instead of ending with `Confirmed: N (density X.XX)`; provisional findings are tagged `[provisional]`.
 - **Exit code, SARIF and Code Quality** are evaluated on the **shown** findings (after baseline, focus and tier filtering). With the default view only actionable/provisional rules can fail `--fail-on`; use `--all` to gate on everything.
+- **CI gating:** with the default view, deterministic but not-yet-measured rules (empty-test, assert-tuple, swallowed-exception, ...) are hidden and do not affect `--fail-on`; add `--all` to your CI command to keep the 0.4 gating behaviour. When hidden findings would have tripped `--fail-on`, one stderr line says so: `testscan: N findings at or above --fail-on <level> are hidden by the default view (unmeasured precision); use --all to gate on them`.
+- **Hidden findings are counted:** JSON `summary.hidden_count` (additive) is the number of findings removed by the default filters (focus + tier; 0 with `--all`). The text header ends with `· N hidden (use --all)`; the HTML hero line and the agent summary line show it too.
+- **`parse-error` is always shown** in the default view (exempt from focus and tier filtering) and counts toward `--fail-on` according to its severity (note). It stays out of the actionable / provisional counts. The header (text, HTML, agent) adds `N files not analyzed (parse error)` when N > 0.
+- **Explicit `--enable <id>` / `--rule <id>`** (CLI or the config `enable` list) bypass the focus and tier display filters: the findings of a rule you asked for by name are shown (and can gate). Library: `scan.DisplayOptions.ExplicitRules` / `scan.ExplicitSet`.
+- **Trend `incomparable`:** when the `--compare` / `--baseline` report predates 0.5 (only `confirmed_*` metrics, or a bare findings array) the trend direction is `incomparable` (JSON `trend.direction`) instead of improved / worsened; text and HTML show `trend: n/a (previous report uses pre-0.5 metrics)`. Deltas are still reported. Whenever the current test count or the previous density is unknown, the comparison is count-only.
+- **Go API (library users):** removed `scan.CountConfirmed`, `scan.ConfirmedDensity`, `scan.FilterLowPrecision`, `scan.MinPrecisionForDisplay` and `Score.ShowGrade`; `scan.ComparePoint.ConfirmedCount` / `ConfirmedDensity` are renamed `ActionableCount` / `ActionableDensity` (new `Legacy` flag); `scan.RulePrecision` is now `map[string]PrecisionInfo` (was `map[string]float64`); `scan.TrendCurrentMetrics` now takes `DisplayOptions` and the test count instead of `focus, filterLowPrecision, fileCount`. `Score.ConfirmedCount` / `ConfirmedDensity` remain as deprecated aliases of the actionable values. Added: `scan.CountActionable`, `CountProvisional`, `CountTier`, `DensityPer100`, `FilterForDisplay`, `HiddenByDisplay`, `ComputeTrendPoint`, `Score.HiddenCount`.
 
-<!-- PRECISION_TABLE -->
+### Precision before / after (mp-be)
+
+Measured on `testdata/corpus/mp-be.labels.json` (382 files, 3649 tests). Cells: findings / TP / FP / precision / Wilson 95% lower bound.
+
+| Rule | 0.4.0 default | 0.4.0 `--show-low-precision` | 0.5.0 default | 0.5.0 `--all` + opt-in |
+|---|---|---|---|---|
+| assert-in-emptyable-loop | 1 / 1 / 0 / 1.00 / 0.21 | 1 / 1 / 0 / 1.00 / 0.21 | — | 1 / 1 / 0 / 1.00 / 0.21 |
+| broad-raises | 2 / 2 / 0 / 1.00 / 0.34 | 2 / 2 / 0 / 1.00 / 0.34 | — | 2 / 2 / 0 / 1.00 / 0.34 |
+| commented-assert | 1 / 0 / 1 / 0.00 / 0.00 | 1 / 0 / 1 / 0.00 / 0.00 | — | — |
+| mock-only-assert | — | 7 / 0 / 7 / 0.00 / 0.00 | — | — |
+| name-body-mismatch | 52 / 0 / 52 / 0.00 / 0.00 | 52 / 0 / 52 / 0.00 / 0.00 | — | 1 / 0 / 1 / 0.00 / 0.00 |
+| near-duplicate-test | 43 / 9 / 34 / 0.21 / 0.11 | 43 / 9 / 34 / 0.21 / 0.11 | — | 7 / 6 / 1 / 0.86 / 0.49 |
+| no-assert | — | 4 / 0 / 4 / 0.00 / 0.00 | — | — |
+| only-happy-path | 4 / 0 / 4 / 0.00 / 0.00 | 4 / 0 / 4 / 0.00 / 0.00 | — | — |
+| overbroad-equality | 17 / 0 / 17 / 0.00 / 0.00 | 17 / 0 / 17 / 0.00 / 0.00 | — | 5 / 0 / 5 / 0.00 / 0.00 |
+| sleep-in-test | 1 / 1 / 0 / 1.00 / 0.21 | 1 / 1 / 0 / 1.00 / 0.21 | — | 1 / 1 / 0 / 1.00 / 0.21 |
+| test-imports-implementation-private | — | 39 / 7 / 32 / 0.18 / 0.09 | — | 39 / 7 / 32 / 0.18 / 0.09 |
+| wall-clock-in-test | 10 / 6 / 4 / 0.60 / 0.31 | 10 / 6 / 4 / 0.60 / 0.31 | 6 / 6 / 0 / 1.00 / 0.61 | 6 / 6 / 0 / 1.00 / 0.61 |
+| weak-assert | — | 13 / 0 / 13 / 0.00 / 0.00 | — | 13 / 0 / 13 / 0.00 / 0.00 |
+| **total** | **131 / 19 / 112 / 0.15 / 0.09** | **194 / 26 / 168 / 0.13 / 0.09** | **6 / 6 / 0 / 1.00 / 0.61** | **75 / 23 / 52 / 0.31 / 0.21** |
+
+Notes on the numbers:
+- `wall-clock-in-test` and `near-duplicate-test` are **provisional** (precision ≥ 0.8 at n ≥ 5); no rule is **actionable** yet (needs Wilson lower ≥ 0.7 at n ≥ 20 — more labeled corpora are needed). `near-duplicate-test` is a note and is hidden by the default focus filter; it shows with `--all`.
+- `broad-raises`, `sleep-in-test`, `assert-in-emptyable-loop` are 100% precise on mp-be but n < 5, so they are hidden by default until more labels exist (`--all` shows them).
+- `name-body-mismatch` (0/52), `no-assert`, `mock-only-assert`, `mock-tautology` are now **opt-in**. The latter three were rewritten on the data-flow model and produce 0 findings on mp-be (all 10 previous FPs gone), so their precision is unmeasured.
+- `near-duplicate-test` ignores tests longer than 15 lines (`nearDupMaxSpan`); this threshold was chosen while looking at the corpus, treat it as tunable.
+- Labeling criterion for `near-duplicate-test` TP: adjacent tests, identical assertions, differing only in inputs, without distinct scenario docstrings.
+- These measurements are in-sample: the rule fixes were developed against the same corpus. Treat provisional status as preliminary until confirmed on other labeled corpora.
+
 
 ### Added
 
 - `--all` flag and `all = true` config key.
+- **Ruff overlap:** `broad-raises` is skipped by default when the project's ruff config enables `PT011` (`select`/`extend-select` with `PT`, `PT0`, `PT01`, `PT011` or `ALL`; the most specific matching selector wins, a tie goes to ignore; any `per-file-ignores` entry covering PT011 or a prefix of it, or a malformed ruff config, counts as not enabled so testscan keeps the rule); set `defer_to_ruff = false` to keep it. Docs: "Overlap with ruff" in docs/rules.md.
+- **`fix` hint on every finding:** one concrete imperative action (`scan.Finding.Fix`, JSON `fix`). Rules that know specifics set it themselves (wall-clock names the call and replacement, near-duplicate names the twin, sleep names the call); everything else gets a per-rule default from `scan.RuleFix`. Also shown in SARIF (`rules[].help`, `results[].properties.fix`), HTML and as an indented `  → fix:` line in text output.
+- **`--format agent`:** one line per finding, `file:line rule — problem → fix`, plus a single summary line (`testscan: 6 findings (6 warning) · 3649 tests`); honors the default display filters and `--all`.
+- Docs: [docs/agent-hook.md](docs/agent-hook.md) — Claude Code `PostToolUse` hook (bash and PowerShell) that scans edited test files and returns findings to the agent.
 - `scan.RuleTier`, `scan.Measured`, `scan.FilterForDisplay`, `scan.Result.Tests`, `scan.CalculateScoreWithTests`.
 - HTML: single headline number (actionable + trend), secondary provisional / tests line, per-finding tier badge and rule precision (`p=0.85 n=24 measured` / `estimated`).
 - Docs: precision tiers, per-100-tests density, `testscan precision` and the labels.json / HTML labelling workflow.
@@ -33,6 +71,8 @@ Honest metrics and a quiet default: only rules with **measured** precision are t
 ### Fixed
 
 - HTML labelling: a collapsed `x N` row now applies a TP/FP click to **all** fingerprints in the group (previously only the first).
+- HTML report: the table-of-contents lookup no longer builds CSS selectors from file names (paths with `"` or `\` broke the script and the TP/FP labelling), and each init block is guarded so one failure cannot disable labelling/export.
+- `wall-clock-in-test`: project timezone detection is bounded (20000 visited entries), stops once settings and `timezone.localdate` usage are resolved, and `from django.utils.timezone import ...` sets the now/localdate flags from the imported names.
 
 
 

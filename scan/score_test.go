@@ -280,10 +280,10 @@ func TestFilterForDisplay(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{})); got != "act/error,prov/warning" {
+	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{})); got != "act/error,prov/warning,parse-error/note" {
 		t.Errorf("default: %s", got)
 	}
-	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{ShowLowPrecision: true})); got != "act/error,prov/warning,low/error" {
+	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{ShowLowPrecision: true})); got != "act/error,prov/warning,low/error,parse-error/note" {
 		t.Errorf("show-low: %s", got)
 	}
 	if got := scan.FilterForDisplay(findings, scan.DisplayOptions{All: true}); len(got) != len(findings) {
@@ -409,5 +409,65 @@ func TestFilterTiers(t *testing.T) {
 	got := scan.FilterTiers(in)
 	if len(got) != 3 || got[0].Rule != "act" || got[1].Rule != "prov" || got[2].Rule != "parse-error" {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestFilterForDisplay_ExplicitRulesBypass(t *testing.T) {
+	withCatalog(t, map[string]scan.PrecisionInfo{
+		"act": scan.Measured(30, 30),
+		"low": {Precision: 1, Source: scan.SourceEstimated},
+	})
+	findings := []scan.Finding{
+		{Rule: "act", Severity: "error"},
+		{Rule: "low", Severity: "error"},
+		{Rule: "name-body-mismatch", Severity: "note"}, // focus-excluded and low tier
+		{Rule: "other", Severity: "error"},
+	}
+	opts := scan.DisplayOptions{ExplicitRules: scan.ExplicitSet([]string{"low"}, []string{"name-body-mismatch"})}
+	var got []string
+	for _, f := range scan.FilterForDisplay(findings, opts) {
+		got = append(got, f.Rule)
+	}
+	if strings.Join(got, ",") != "act,low,name-body-mismatch" {
+		t.Fatalf("explicit bypass: %v", got)
+	}
+	hidden := scan.HiddenByDisplay(findings, opts)
+	if len(hidden) != 1 || hidden[0].Rule != "other" {
+		t.Fatalf("hidden = %+v", hidden)
+	}
+	if h := scan.HiddenByDisplay(findings, scan.DisplayOptions{All: true}); len(h) != 0 {
+		t.Fatalf("--all hides nothing, got %+v", h)
+	}
+}
+
+func TestComputeTrendPoint(t *testing.T) {
+	legacy := scan.ComparePoint{ActionableCount: 5, ActionableDensity: -1, Legacy: true}
+	if tr := scan.ComputeTrendPoint(2, 1, 100, legacy); tr.Direction != "incomparable" || tr.DeltaCount != -3 {
+		t.Fatalf("legacy: %+v", tr)
+	}
+	cur := scan.ComparePoint{ActionableCount: 3, ActionableDensity: 2.5}
+	if tr := scan.ComputeTrendPoint(3, 0, 0, cur); tr.Direction != "unchanged" {
+		t.Fatalf("tests==0 must compare count only, got %+v", tr)
+	}
+	if tr := scan.ComputeTrendPoint(2, 0.5, 400, cur); tr.Direction != "improved" {
+		t.Fatalf("count down: %+v", tr)
+	}
+	unknown := scan.ComparePoint{ActionableCount: 3, ActionableDensity: -1}
+	if tr := scan.ComputeTrendPoint(3, 0.1, 100, unknown); tr.Direction != "unchanged" {
+		t.Fatalf("unknown prev density: %+v", tr)
+	}
+}
+
+func TestFormatScoreLine_HiddenParseIncomparable(t *testing.T) {
+	s := scan.CalculateScoreWithTests(nil, 3, 10)
+	s.HiddenCount = 7
+	s.ParseSkipped = 1
+	tr := scan.Trend{Direction: scan.TrendIncomparable}
+	s.Trend = &tr
+	line := scan.FormatScoreLine(s)
+	for _, want := range []string{"7 hidden (use --all)", "1 file not analyzed (parse error)", "trend: n/a (previous report uses pre-0.5 metrics)"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("want %q in %q", want, line)
+		}
 	}
 }

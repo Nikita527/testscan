@@ -54,7 +54,7 @@ testscan path/to/tests --format json --fail-on never
 testscan path/to/tests --format sarif --fail-on never > testscan.sarif
 testscan path/to/tests --format codequality -o gl-code-quality-report.json
 testscan path --rule assert-equals-same
-testscan path --disable no-assert --disable empty-test
+testscan path --disable weak-assert --disable empty-test
 testscan path --workers 4
 testscan tests --diff origin/main...HEAD --format html --open
 ```
@@ -93,11 +93,11 @@ time ./testscan.exe /c/Dev/mp-be/tests --fail-on never >/dev/null
 ```
 
 Флаги:
-- `--format text|json|sarif|html|codequality` (default: `text`) — `html` — самодостаточный отчёт (в hero одно главное число: **actionable** + trend; мелкая строка с числом provisional и просканированных тестов; бейдж тира и precision правила у каждой находки; кнопки TP/FP; фильтры **error / warning / note / tool error**; поиск; по умолчанию **файл → находки**, переключатель By rule; ссылки `vscode://file/…:line`; повторы `×N` — один клик TP/FP размечает всю группу; фрагменты ±5 строк; twin у near-duplicate). Notes и tool errors по умолчанию сняты. `codequality` — GitLab Code Quality. Пишите через `-o`/`--output` или stdout.
+- `--format text|json|sarif|html|codequality|agent` (default: `text`) — `agent` печатает по строке на находку (`file:line rule — проблема → fix`) и одну итоговую строку, для ИИ-агентов и хуков (см. [docs/agent-hook.ru.md](docs/agent-hook.ru.md)); у каждой находки есть конкретная подсказка `fix` (JSON `fix`, SARIF help/`properties.fix`, строка fix в HTML и text); `html` — самодостаточный отчёт (в hero одно главное число: **actionable** + trend; мелкая строка с числом provisional и просканированных тестов; бейдж тира и precision правила у каждой находки; кнопки TP/FP; фильтры **error / warning / note / tool error**; поиск; по умолчанию **файл → находки**, переключатель By rule; ссылки `vscode://file/…:line`; повторы `×N` — один клик TP/FP размечает всю группу; фрагменты ±5 строк; twin у near-duplicate). Notes и tool errors по умолчанию сняты. `codequality` — GitLab Code Quality. Пишите через `-o`/`--output` или stdout.
 - `text` начинается одной строкой-заголовком, например `testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files` (+ ` · trend improved (Δ -2)` при сравнении), затем по строке на находку; provisional помечены `[provisional]`. `json` = `{"summary":{actionable_count,actionable_per_100_tests,provisional_count,shown_count,tests,files,trend?,errors,warnings,notes,parse_skipped,warnings_in_grade,warnings_ignored,health_score,grade,grade_deprecated,confirmed_count,confirmed_density},"findings":[…]}`; у каждой находки добавлены `tier` (`actionable|provisional|low`) и `precision` (`{value,n,source,wilson_lower}`) — аддитивные поля. `confirmed_count` / `confirmed_density` — **deprecated** синонимы `actionable_count` / `actionable_per_100_tests` (оставлены на один релиз); `health_score` / `grade` — **deprecated** (`grade_deprecated: true`), в text и HTML больше не выводятся. **`parse-error`** — tool errors (`parse_skipped`), не считаются ни actionable, ни provisional.
 - `-o` / `--output PATH` — записать отчёт в файл
 - `--open` — открыть HTML в браузере; без `-o` пишет в `.testscan/reports/report_<timestamp>.html` и создаёт локальный `.gitignore`
-- `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`. **Migration:** demoted-правила и `wall-clock-in-test` по умолчанию **note**, поэтому `--fail-on warning` на них больше не падает.
+- `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`. **Migration:** в v0.5.0 `name-body-mismatch`, `no-assert`, `mock-only-assert` и `mock-tautology` теперь **opt-in** (перемещены из default); активируйте через `--enable` / `enable`. Вид по умолчанию показывает только actionable и provisional находки (см. Тиры точности); `wall-clock-in-test` и `overbroad-equality` остаются default с severity **note**.
 - `--rule ID` — только эти правила из `All()`; без флага — `Default()` плюс `--enable`
 - `--enable ID` — включить opt-in Optional-правила; объединяется с `enable` из конфига
 - `--disable ID` — выключить правило(а); объединяется с `disable` из конфига
@@ -108,10 +108,12 @@ time ./testscan.exe /c/Dev/mp-be/tests --fail-on never >/dev/null
 - `--show-grade` — **deprecated, ничего не делает** (предупреждение в stderr). Health Score / оценка A–F больше не выводятся в text и HTML; JSON по-прежнему содержит `health_score`, `grade`, `grade_deprecated: true`.
 - `--show-low-precision` — дополнительно показать находки **low**-тира (estimated / не измеренные / ниже порога provisional), focus-фильтр остаётся (по умолчанию скрыты). Конфиг: `show-low-precision = true`.
 - `--diff <base-ref>` — только изменённые/добавленные тестовые файлы с `base-ref`
-- `--focus` — **deprecated, ничего не делает** (предупреждение в stderr): focus-фильтр теперь включён по умолчанию. Он оставляет error/warning с весом precision ≥ 0.15 и убирает `note`, `parse-error`, правила с нулевой точностью и набор демотированных эвристик. `--all` отключает его. Порядок: scan → baseline → focus → фильтр по тирам → score (+ trend) → emit.
+- `--focus` — **deprecated, ничего не делает** (предупреждение в stderr): focus-фильтр теперь включён по умолчанию. Он оставляет error/warning с весом precision ≥ 0.15 и убирает `note`, правила с нулевой точностью и набор демотированных эвристик. `--all` отключает его. `parse-error` показывается всегда. Порядок: scan → baseline → focus → фильтр по тирам → score (+ trend) → emit.
 - `--workers N` — параллельные проверки (`0` → `runtime.NumCPU()`)
 
 **Уже есть для CI:** `--diff` + `--baseline` + `codequality`/`sarif`/`json`. Ручки: `--enable`, `--compare`, `--show-low-precision`, `--all`. Exit code (`--fail-on`), SARIF и Code Quality считаются по **показанным** находкам (после baseline и display-фильтров): в виде по умолчанию билд могут валить только actionable/provisional правила; для гейта по всему используйте `--all`.
+
+**Миграция CI с 0.4 на 0.5:** детерминированные, но ещё не измеренные правила (empty-test, assert-tuple, swallowed-exception, …) по умолчанию скрыты и больше не влияют на `--fail-on`; добавьте `--all` в команду CI, чтобы сохранить поведение 0.4. Вид по умолчанию сообщает, что скрыл (`· N hidden (use --all)`, JSON `summary.hidden_count`), и печатает одну строку в stderr, если скрытые находки сработали бы на `--fail-on`. `parse-error` (файл, который не удалось проанализировать) показывается всегда. Правила, запрошенные явно через `--enable` / `--rule`, обходят display-фильтры. Сравнение с отчётом до 0.5 даёт тренд `incomparable` (`trend: n/a`). Для пользователей Go-библиотеки см. «Go API» в CHANGELOG.
 
 ### Тиры точности, плотность и разметка
 
@@ -181,6 +183,7 @@ python-files = ["test_*.py", "*_test.py"]
 respect-gitignore = true
 # show-low-precision = true  # показать и low-тир (estimated / не измеренные правила); focus остаётся
 # all = true                 # показать всё (как --all): без focus, все тиры
+# defer_to_ruff = false      # сообщать broad-raises, даже если ruff включает PT011 (по умолчанию true, см. docs/rules.ru.md)
 
 [rules.only-happy-path]
 severity = "note"
@@ -275,9 +278,7 @@ Go вызывает `parse.File` / batch один раз на файл внут�
 | ID | Severity | Когда |
 |----|----------|--------|
 | empty-test | error | AST: пустое тело `test_*`/`Test*` (pass / только docstring); fallback — эвристика по функциям/файлу |
-| no-assert | note | нет assert / pytest.raises / pytest.warns / assert-хелпера (пропускает no-raise имена) |
 | assert-true | warning | `assert True` / `assert 1` / `assert "…"`, или `assertTrue`/`assertFalse` со сравнением |
-| mock-only-assert | note | только mock-assert при игноре результата SUT (пропускает procedural / adapters) |
 | todo-test | warning | pytest.skip / fail("TODO") / assert False, "TODO" |
 | duplicate-test-name | error | AST: дубликаты имён test-функций (lineno второго); fallback — построчный разбор |
 | only-happy-path | note | >min-tests на один SUT без негативных сигналов (расширенный словарь); пропускает чистые mapper; опционально `mode = "coverage"` / `--coverage` |
@@ -292,16 +293,18 @@ Go вызывает `parse.File` / batch один раз на файл внут�
 | swallowed-exception | warning | bare / `except Exception` без re-raise |
 | assert-in-emptyable-loop | warning | assert только внутри for по emptyable (`other`); пропускает литералы / `range` / consts / pre-loop assert |
 | weak-assert | note | только bare truthy / is not None / len vs 0; поверхностный rejects / GET 200; не `len==N` и не `accepts_*` is_valid |
-| mock-tautology | note | assert на сам мок / patched self, повторяющий `return_value` |
 | sleep-in-test | warning | `time.sleep` / `asyncio.sleep` |
 | wall-clock-in-test | note | `datetime.now` / `date.today` без freeze |
 | skip-without-reason | warning | skip/xfail без reason или strict |
 | near-duplicate-test | note | почти одинаковые тела после нормализации литералов; пропускает противоположную полярность / разный SUT / enum; 3+ → набросок parametrize |
-| name-body-mismatch | note | имя теста намекает на негатив, а в теле нет негативного сигнала |
 | self-patched-sut | warning | патчит сам SUT и проверяет патч |
 | expected-recomputed | warning | RHS assert пересчитывает ожидаемое через SUT/хелпер (не детерминизм `f(x)==f(x)`) |
 | commented-assert | note | закомментированный `# assert` / `# self.assert` |
 | overbroad-equality | note | assert равен огромному литералу dict/list/tuple (пропускает `response.data` / `*.json()`) |
+| no-assert | *opt-in* | data-flow: нет assert, зависящего от результата SUT (трассирует через присваивания/атрибуты/subscripts в вызовы проектного кода) |
+| mock-only-assert | *opt-in* | data-flow: assert на мок, не подключённый в SUT |
+| mock-tautology | *opt-in* | data-flow: assert сравнивает только значения из конфигурации мока |
+| name-body-mismatch | *opt-in* | имя теста намекает на ошибку, но в теле нет сигнала ошибки (status FAILED/REJECTED, error_code, non-empty errors/issues) |
 | error-contract-assert | *opt-in* | non-2xx status без проверки пути кода ошибки |
 | raises-without-check | *opt-in* | `pytest.raises` без `match=` / attr доменной ошибки |
 | missing-mirror-test | *opt-in* | domain-файл без зеркального теста |
@@ -319,9 +322,9 @@ testscan — дешёвый префильтр для AI-тестов. **Орк�
 
 ## False positives (кратко)
 
-1. `no-assert` — no-raise имена / тела `validate_*` / хелперы `_assert_*` пропускаются; слово `assert` в комментарии может считаться проверкой в heuristic-режиме.
+1. `no-assert` — data-flow трассирует только до SUT (вызовов, импортированных из пакета проекта); вызовы на фикстурах или локальных хелперах после SUT считаются наблюдением состояния, поэтому recall намеренно низкий. No-raise имена по-прежнему пропускаются.
 2. `assert-true` — сработает на `assert True` / другие константы в docstring или строке (эвристика).
-3. `mock-only-assert` — boundary-пути и bare procedural SUT пропускаются; присвоенный и неиспользованный return всё ещё warning.
+3. `mock-only-assert` — data-flow трассирует только до SUT (вызовов, импортированных из пакета проекта); recall намеренно низкий, зависит от восстановления control-flow из AST.
 4. `todo-test` — `pytest.skip` / `unittest.skip` без разбора причины; `assert False` только с `, "TODO"` / `pytest.fail("TODO")`.
 5. `empty-test` — без AST: грубый разбор тела по отступам; с AST точнее, но helpers/`pytest.skip` в теле не делают тест «непустым» сами по себе.
 6. `assert-equals-same` — `assert 1 == 1`; `assert "x==y" == z` (первый `==` внутри строки); сравнения в комментариях.

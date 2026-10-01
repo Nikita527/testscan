@@ -63,6 +63,7 @@ func (wallClockInTest) Check(file scan.File) []scan.Finding {
 					Rule:     "wall-clock-in-test",
 					Severity: "note",
 					Message:  "wall-clock read (datetime.now / date.today) without freeze; prefer freezegun or time-machine",
+					Fix:      "freeze time with `@freeze_time(...)` (freezegun / time-machine) instead of calling `" + wallClockCallLabel(c.Name) + "`",
 					QualName: q,
 				})
 				continue
@@ -76,6 +77,7 @@ func (wallClockInTest) Check(file scan.File) []scan.Finding {
 				Rule:     "wall-clock-in-test",
 				Severity: "warning",
 				Message:  tz.message(c.Name),
+				Fix:      wallClockAwareFix(file.Content, c),
 				QualName: q,
 			})
 		}
@@ -99,6 +101,49 @@ func wallClockFlowMatters(t parse.TestFunc, c parse.Call) bool {
 		}
 	}
 	return callArg && !testHasNegativePath(t, defaultNegativeNames)
+}
+
+// wallClockCallLabel is the short call as written, e.g. `datetime.now()`.
+func wallClockCallLabel(name string) string {
+	parts := strings.Split(name, ".")
+	if len(parts) > 2 {
+		name = strings.Join(parts[len(parts)-2:], ".")
+	}
+	return name + "()"
+}
+
+// wallClockAwareFix names the replacement; `datetime.now().date()` on the
+// finding's line maps to `timezone.localdate()` like `date.today()`.
+func wallClockAwareFix(content []byte, c parse.Call) string {
+	label := wallClockCallLabel(c.Name)
+	repl := wallClockReplacement(c.Name)
+	if lineHasDateChain(content, c.Lineno, label) {
+		label = strings.TrimSuffix(label, "()") + "().date()"
+		repl = "timezone.localdate()"
+	}
+	return "replace `" + label + "` with `" + repl + "`, or freeze time"
+}
+
+// lineHasDateChain reports whether `<call>().date()` appears on line lineno.
+func lineHasDateChain(content []byte, lineno int, label string) bool {
+	if lineno < 1 {
+		return false
+	}
+	lines := strings.Split(string(content), "\n")
+	if lineno > len(lines) {
+		return false
+	}
+	short := strings.TrimSuffix(label, "()")
+	return strings.Contains(strings.ReplaceAll(lines[lineno-1], " ", ""), short+"().date()")
+}
+
+// wallClockReplacement names the timezone-aware Django-style replacement.
+func wallClockReplacement(name string) string {
+	n := strings.ToLower(name)
+	if strings.HasSuffix(n, "date.today") && !strings.HasSuffix(n, "datetime.today") {
+		return "timezone.localdate()"
+	}
+	return "timezone.now()"
 }
 
 func isWallClockCall(name string) bool {
@@ -195,6 +240,14 @@ func (i tzInfo) message(callName string) string {
 
 const tzMaxFiles = 5000
 
+// tzMaxVisited caps the total directory entries (files and directories) the
+// project timezone walk may visit.
+const tzMaxVisited = 20000
+
+// reTZFromImport matches `from django.utils.timezone import a, b as c` including
+// the parenthesised multi-line form.
+var reTZFromImport = regexp.MustCompile(`(?m)^[ \t]*from[ \t]+django\.utils\.timezone[ \t]+import[ \t]+(?:\(([^)]*)\)|([^\n]*))`)
+
 var (
 	tzSkipDirs = map[string]bool{
 		".venv": true, "venv": true, "node_modules": true, ".git": true, "site-packages": true,
@@ -240,10 +293,14 @@ func detectProjectTZ(root string) tzInfo {
 	settingsAware := settingsModuleUsesTZ(root)
 	usesLocaldate, usesNow := false, false
 
-	count := 0
+	count, visited := 0, 0
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
+		}
+		visited++
+		if visited > tzMaxVisited {
+			return filepath.SkipAll
 		}
 		name := d.Name()
 		if d.IsDir() {
@@ -274,6 +331,10 @@ func detectProjectTZ(root string) tzInfo {
 			usesLocaldate = usesLocaldate || l
 			usesNow = usesNow || n
 		}
+		// Both facts resolved: the answer cannot change any more.
+		if settingsAware && usesLocaldate {
+			return filepath.SkipAll
+		}
 		return nil
 	})
 
@@ -287,15 +348,35 @@ func detectProjectTZ(root string) tzInfo {
 	return info
 }
 
-// scanTimezoneUse reports django.utils.timezone localdate()/now() usage.
+// scanTimezoneUse reports django.utils.timezone localdate()/now() usage. For
+// `from django.utils.timezone import ...` the flags follow the imported names.
 func scanTimezoneUse(data []byte) (localdate, now bool) {
-	fromImport := bytes.Contains(data, []byte("from django.utils.timezone import"))
-	if bytes.Contains(data, []byte("timezone.localdate(")) ||
-		(fromImport && bytes.Contains(data, []byte("localdate("))) {
+	if bytes.Contains(data, []byte("timezone.localdate(")) {
 		localdate = true
 	}
-	if bytes.Contains(data, []byte("timezone.now(")) || fromImport {
+	if bytes.Contains(data, []byte("timezone.now(")) {
 		now = true
+	}
+	for _, m := range reTZFromImport.FindAllSubmatch(data, -1) {
+		list := string(m[1])
+		if list == "" {
+			list = string(m[2])
+		}
+		if i := strings.Index(list, "#"); i >= 0 {
+			list = list[:i]
+		}
+		for _, part := range strings.Split(list, ",") {
+			fields := strings.Fields(part)
+			if len(fields) == 0 {
+				continue
+			}
+			switch fields[0] {
+			case "localdate":
+				localdate = true
+			case "now":
+				now = true
+			}
+		}
 	}
 	return localdate, now
 }

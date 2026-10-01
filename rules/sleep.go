@@ -28,6 +28,7 @@ func (sleepInTest) Check(file scan.File) []scan.Finding {
 				Rule:     "sleep-in-test",
 				Severity: "warning",
 				Message:  "time.sleep / asyncio.sleep in test; prefer event waits or freezegun / time-machine",
+				Fix:      "remove `" + c.Name + "(...)`; wait on the condition (poll with a timeout or an event) or use a fake clock",
 				QualName: q,
 			})
 		}

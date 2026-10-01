@@ -56,7 +56,7 @@ testscan path/to/tests --format json --fail-on never
 testscan path/to/tests --format sarif --fail-on never > testscan.sarif
 testscan path/to/tests --format codequality -o gl-code-quality-report.json
 testscan path --rule assert-equals-same
-testscan path --disable no-assert --disable empty-test
+testscan path --disable weak-assert --disable empty-test
 testscan path --workers 4
 testscan tests --diff origin/main...HEAD --format html --open
 ```
@@ -84,11 +84,11 @@ Go remains the source of truth; Python only locates the binary and forwards argv
 
 ### Flags
 
-- `--format text|json|sarif|html|codequality` (default: `text`) — `html` is a self-contained interactive report (one headline number: **actionable** findings + trend; a small secondary line with provisional count and tests scanned; per-finding tier badge and rule precision; TP/FP labelling buttons; filters for **error / warning / note / tool error**; search; default grouping **file → findings**, toggle By rule; `vscode://file/…:line` links; repeated messages as `×N` — one TP/FP click labels the whole group; code snippets ±5 lines; near-duplicate twin links). Notes and tool errors are unchecked by default. `codequality` is GitLab Code Quality (Code Climate JSON). Write with `-o`/`--output`, or redirect stdout (`> report.html`).
+- `--format text|json|sarif|html|codequality|agent` (default: `text`) — `agent` prints one line per finding (`file:line rule — problem → fix`) plus a one-line summary, for AI agents and hooks (see [docs/agent-hook.md](docs/agent-hook.md)); every finding carries a concrete `fix` hint (JSON `fix`, SARIF help/`properties.fix`, HTML and text "fix" line); `html` is a self-contained interactive report (one headline number: **actionable** findings + trend; a small secondary line with provisional count and tests scanned; per-finding tier badge and rule precision; TP/FP labelling buttons; filters for **error / warning / note / tool error**; search; default grouping **file → findings**, toggle By rule; `vscode://file/…:line` links; repeated messages as `×N` — one TP/FP click labels the whole group; code snippets ±5 lines; near-duplicate twin links). Notes and tool errors are unchecked by default. `codequality` is GitLab Code Quality (Code Climate JSON). Write with `-o`/`--output`, or redirect stdout (`> report.html`).
 - `text` starts with one header line, e.g. `testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files` (plus ` · trend improved (Δ -2)` when comparing), then one line per finding; provisional findings carry a `[provisional]` tag. `json` is `{"summary":{actionable_count,actionable_per_100_tests,provisional_count,shown_count,tests,files,trend?,errors,warnings,notes,parse_skipped,warnings_in_grade,warnings_ignored,health_score,grade,grade_deprecated,confirmed_count,confirmed_density},"findings":[…]}`; every finding additionally has `tier` (`actionable|provisional|low`) and `precision` (`{value,n,source,wilson_lower}`) — additive fields. `confirmed_count` / `confirmed_density` are **deprecated** aliases of `actionable_count` / `actionable_per_100_tests` (kept for one release); `health_score` / `grade` are **deprecated** (`grade_deprecated: true`) and are no longer rendered in text or HTML. **notes** are UI-only. **`parse-error` / AST failures** are **tool errors**: `parse_skipped` / separate HTML chip — they never count as actionable or provisional.
 - `-o` / `--output PATH` — write report to a file (any format)
 - `--open` — open HTML report in the default browser; without `-o` writes to `.testscan/reports/report_<timestamp>.html` and creates a local `.gitignore` so reports stay out of git
-- `--fail-on error|warning|never` (default: `error`) — exit `1` if any finding ≥ threshold; CLI errors → exit `2`. **Migration:** demoted rules (`name-body-mismatch`, `no-assert`, `mock-only-assert`, `mock-tautology`, `overbroad-equality`) and `wall-clock-in-test` are **note** by default, so `--fail-on warning` no longer fails on them; use notes triage, baseline, or config severity overrides if you still want gates.
+- `--fail-on error|warning|never` (default: `error`) — exit `1` if any finding ≥ threshold; CLI errors → exit `2`. **Migration:** in v0.5.0 `name-body-mismatch`, `no-assert`, `mock-only-assert`, and `mock-tautology` are now **opt-in** (moved from default); use `--enable` / `enable` to activate them. The default view shows only actionable and provisional findings (see Precision tiers); `wall-clock-in-test` and `overbroad-equality` remain default at **note** severity.
 - `--rule ID` (repeatable) — only these rules (from `All()` = Default ∪ Optional); omit to use `Default()` plus `--enable`
 - `--enable ID` (repeatable) — turn on opt-in Optional rules; merged with config `enable`
 - `--disable ID` (repeatable) — turn rule(s) off; merged with config `disable`
@@ -99,10 +99,12 @@ Go remains the source of truth; Python only locates the binary and forwards argv
 - `--show-grade` — **deprecated no-op** (prints a warning to stderr). Health Score / A–F grade is no longer rendered in text or HTML; JSON still carries `health_score`, `grade`, `grade_deprecated: true`.
 - `--show-low-precision` — additionally show **low**-tier findings (rules that are estimated / unmeasured / below the provisional bar) while keeping the focus filter (default: hidden). Config: `show-low-precision = true`.
 - `--diff <base-ref>` — scan only test files changed or added since `base-ref` (`git diff --name-only --diff-filter=ACMR`). Primary PR workflow for reviewing AI-generated tests; use `origin/main` or `origin/main...HEAD`.
-- `--focus` — **deprecated no-op** (prints a warning to stderr): the focus filter is now the default. Focus keeps only error/warning findings whose rule precision weight is ≥ `MinPrecisionForGrade` (0.15) and drops `note`, `parse-error`, zero-precision rules and a fixed set of demoted heuristics even if config bumps their severity. Use `--all` to disable it. Pipeline order: scan → baseline → focus → tier filter → score (+ trend) → emit.
+- `--focus` — **deprecated no-op** (prints a warning to stderr): the focus filter is now the default. Focus keeps only error/warning findings whose rule precision weight is ≥ `MinPrecisionForGrade` (0.15) and drops `note`, zero-precision rules and a fixed set of demoted heuristics even if config bumps their severity. Use `--all` to disable it. `parse-error` is always shown. Pipeline order: scan → baseline → focus → tier filter → score (+ trend) → emit.
 - `--workers N` — parallel file checks (`0` → `runtime.NumCPU()`)
 
 **Already available for CI:** `--diff` + `--baseline` + `--format codequality|sarif|json`. Knobs: `--enable`, `--compare`, `--show-low-precision`, `--all`. The exit code (`--fail-on`), SARIF and Code Quality output are all evaluated on the **shown** findings (after baseline and display filters) — with the default view that means only actionable/provisional rules can fail a build; use `--all` to gate on everything.
+
+**Migrating CI from 0.4 to 0.5:** deterministic but not-yet-measured rules (empty-test, assert-tuple, swallowed-exception, …) are hidden by default and no longer affect `--fail-on`; add `--all` to your CI command to keep the 0.4 gating behaviour. The default view reports what it hid (`· N hidden (use --all)`, JSON `summary.hidden_count`) and prints one stderr line when hidden findings would have tripped `--fail-on`. `parse-error` (a file that could not be analyzed) is always shown. Rules requested explicitly via `--enable` / `--rule` bypass the display filters. Comparing against a pre-0.5 report gives trend `incomparable` (`trend: n/a`). Go library users: see "Go API" in the CHANGELOG.
 
 ### Precision tiers, density and labelling
 
@@ -174,6 +176,7 @@ python-classes = ["Test*"]
 respect-gitignore = true
 # show-low-precision = true  # also show low-tier findings (estimated / unmeasured rules); focus stays on
 # all = true                 # show everything (same as --all): no focus filter, all tiers
+# defer_to_ruff = false      # report broad-raises even when ruff enables PT011 (default: true, see docs/rules.md)
 
 [rules.only-happy-path]
 severity = "note"
@@ -275,9 +278,7 @@ Default rules are on unless `--disable` / `disable`. Opt-in rules are off until 
 | ID | Severity | When |
 |----|----------|------|
 | empty-test | error | AST: empty `test_*` / `Test*` body (`pass` / docstring only); fallback — function/file heuristics |
-| no-assert | note | no assert / pytest.raises / pytest.warns / assert-helper (skips no-raise names) |
 | assert-true | warning | `assert True` / `assert 1` / `assert "…"`, or `assertTrue`/`assertFalse` with a comparison |
-| mock-only-assert | note | mock-assert only while SUT return is ignored (skips procedural / adapters) |
 | todo-test | warning | pytest.skip / fail("TODO") / assert False, "TODO" |
 | duplicate-test-name | error | AST: duplicate test function names (lineno of second); fallback — line scan |
 | only-happy-path | note | >min-tests for the same SUT with no negative-path signals (expanded dict); skips pure mappers; optional `mode = "coverage"` / `--coverage` |
@@ -292,16 +293,18 @@ Default rules are on unless `--disable` / `disable`. Opt-in rules are off until 
 | swallowed-exception | warning | bare / `except Exception` without re-raise |
 | assert-in-emptyable-loop | warning | asserts only inside for over emptyable (`other`) iterable; skips literals / `range` / consts / pre-loop assert |
 | weak-assert | note | only bare truthy / is not None / len vs 0; shallow rejects / GET 200; not `len==N` or `accepts_*` is_valid |
-| mock-tautology | note | assert on mock itself / patched self echoing `return_value` |
 | sleep-in-test | warning | `time.sleep` / `asyncio.sleep` |
 | wall-clock-in-test | note | `datetime.now` / `date.today` without freeze |
 | skip-without-reason | warning | skip/xfail without reason or strict |
 | near-duplicate-test | note | near-identical bodies after literal norm; skips opposite polarity / different SUT / enums; 3+ → parametrize sketch |
-| name-body-mismatch | note | test name implies negative case but body has no negative signal |
 | self-patched-sut | warning | patches the SUT under test and asserts the patch |
 | expected-recomputed | warning | assert RHS recomputes expected via SUT/helper call (not `f(x)==f(x)` determinism) |
 | commented-assert | note | commented-out `# assert` / `# self.assert` |
 | overbroad-equality | note | assert equals a huge dict/list/tuple literal (skips `response.data` / `*.json()` contract bodies) |
+| no-assert | *opt-in* | data-flow: no assert depends on the SUT result (traces through assignments/attributes/subscripts back to project-code calls) |
+| mock-only-assert | *opt-in* | data-flow: assert on mock that is not wired into the SUT |
+| mock-tautology | *opt-in* | data-flow: assert compares only values derived from mock configuration |
+| name-body-mismatch | *opt-in* | test name implies negative case but body lacks error signal (status FAILED/REJECTED, error_code, non-empty errors/issues) |
 | error-contract-assert | *opt-in* | non-2xx status assert without configured error-code path |
 | raises-without-check | *opt-in* | `pytest.raises` without `match=` / domain error attr check |
 | missing-mirror-test | *opt-in* | domain source file without mirror test path |
@@ -319,9 +322,9 @@ testscan is a cheap pre-filter for AI-written tests. **Mutation orchestration** 
 
 ## False positives (short)
 
-1. `no-assert` — no-raise names / `validate_*` bodies / `_assert_*` helpers are skipped; word `assert` in a comment may still count in heuristic mode.
+1. `no-assert` — data-flow only traces back to SUT (calls imported from the project package); calls on fixtures or test-local helpers after the SUT count as observing state, so recall is intentionally low. No-raise names still skipped.
 2. `assert-true` — fires on `assert True` / other constants in a docstring or string (heuristic mode).
-3. `mock-only-assert` — boundary paths and bare procedural SUT calls are skipped; assigned unused returns still warn.
+3. `mock-only-assert` — data-flow only traces back to SUT (calls imported from the project package); recall is intentionally low, depends on control-flow recovery from the AST.
 4. `todo-test` — `pytest.skip` / `unittest.skip` without reason parsing; `assert False` only with `, "TODO"` / `pytest.fail("TODO")`.
 5. `empty-test` — without AST: rough indent-based body parse; with AST more accurate, but helpers / `pytest.skip` alone do not make a test “non-empty”.
 6. `assert-equals-same` — `assert 1 == 1`; `assert "x==y" == z` (first `==` inside a string); comparisons in comments.

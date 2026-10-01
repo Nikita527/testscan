@@ -211,6 +211,8 @@ func emitNearDupFindings(path string, cluster []nearDupMember) []scan.Finding {
 			QualName:        first.qual,
 			RelatedLine:     second.t.Lineno,
 			RelatedQualName: second.qual,
+			Fix: fmt.Sprintf("merge %s and %s into one test with `@pytest.mark.parametrize` over the differing inputs",
+				first.qual, strings.Join(twinNames(cluster[1:]), ", ")),
 		}}
 	}
 	later := cluster[1]
@@ -226,7 +228,17 @@ func emitNearDupFindings(path string, cluster []nearDupMember) []scan.Finding {
 		QualName:        later.qual,
 		RelatedLine:     first.t.Lineno,
 		RelatedQualName: first.qual,
+		Fix: fmt.Sprintf("merge %s into %s with `@pytest.mark.parametrize` over the differing inputs",
+			later.qual, first.qual),
 	}}
+}
+
+func twinNames(ms []nearDupMember) []string {
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.qual)
+	}
+	return out
 }
 
 func NewNearDuplicateTest() scan.Rule {

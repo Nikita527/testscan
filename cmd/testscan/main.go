@@ -14,7 +14,7 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality] [--fail-on error|warning|never] [--rule ID] [--enable ID] [--disable ID] [--baseline path.json] [--compare path.json] [--coverage path.json] [--diff base-ref] [--all] [--show-low-precision] [--workers N] [-o|--output PATH] [--open]\n       testscan precision --labels .testscan/labels.json [--report out.json] [--format text|json]"
+const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality|agent] [--fail-on error|warning|never] [--rule ID] [--enable ID] [--disable ID] [--baseline path.json] [--compare path.json] [--coverage path.json] [--diff base-ref] [--all] [--show-low-precision] [--workers N] [-o|--output PATH] [--open]\n       testscan precision --labels .testscan/labels.json [--report out.json] [--format text|json]"
 
 var errHelp = errors.New("help")
 
@@ -79,6 +79,7 @@ func main() {
 		os.Exit(2)
 	}
 	selected = rules.ApplyConfig(selected, cfg)
+	selected = rules.DeferToRuff(selected, cfg, cwd, append(append([]string{}, args.only...), args.enable...))
 	coveragePath := args.coverage
 	if coveragePath == "" {
 		coveragePath = rules.CoveragePathFromConfig(cfg)
@@ -153,9 +154,14 @@ func main() {
 	// --show-low-precision adds low tiers; --all disables every filter.
 	// Exit code, SARIF, codequality and the score all use this shown set.
 	display := displayOptions(args)
+	hidden := scan.HiddenByDisplay(findings, display)
 	findings = scan.FilterForDisplay(findings, display)
+	if msg := hiddenGateWarning(hidden, args.failOn); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+	}
 
 	score := scan.CalculateScoreWithTests(findings, result.Files, result.Tests)
+	score.HiddenCount = len(hidden)
 	if comparePath != "" {
 		prev, err := scan.LoadComparePoint(comparePath)
 		if err != nil {
@@ -182,8 +188,37 @@ func main() {
 }
 
 // displayOptions maps CLI/config flags to the display filter.
+// Rules requested explicitly (--rule / --enable, CLI or config) bypass the focus
+// and tier filters.
 func displayOptions(args cliArgs) scan.DisplayOptions {
-	return scan.DisplayOptions{All: args.all, ShowLowPrecision: args.showLowPrecision}
+	return scan.DisplayOptions{
+		All:              args.all,
+		ShowLowPrecision: args.showLowPrecision,
+		ExplicitRules:    scan.ExplicitSet(args.only, args.enable),
+	}
+}
+
+// hiddenGateWarning returns the stderr line for hidden findings that would have
+// triggered --fail-on, or "" when there are none.
+func hiddenGateWarning(hidden []scan.Finding, failOn string) string {
+	if failOn == "never" {
+		return ""
+	}
+	n := 0
+	for _, f := range hidden {
+		if triggersFailOn(f, failOn) {
+			n++
+		}
+	}
+	if n == 0 {
+		return ""
+	}
+	noun := "findings"
+	verb := "are"
+	if n == 1 {
+		noun, verb = "finding", "is"
+	}
+	return fmt.Sprintf("testscan: %d %s at or above --fail-on %s %s hidden by the default view (unmeasured precision); use --all to gate on them", n, noun, failOn, verb)
 }
 
 // applyConfig: CLI overrides config; disable/enable = config ∪ CLI.
@@ -347,8 +382,8 @@ func parseArgs(argv []string) (cliArgs, error) {
 		}
 	}
 
-	if out.format != "text" && out.format != "json" && out.format != "sarif" && out.format != "html" && out.format != "codequality" {
-		return cliArgs{}, fmt.Errorf("invalid --format %q (want text|json|sarif|html|codequality)", out.format)
+	if out.format != "text" && out.format != "json" && out.format != "sarif" && out.format != "html" && out.format != "codequality" && out.format != "agent" {
+		return cliArgs{}, fmt.Errorf("invalid --format %q (want text|json|sarif|html|codequality|agent)", out.format)
 	}
 	if out.failOn != "error" && out.failOn != "warning" && out.failOn != "never" {
 		return cliArgs{}, fmt.Errorf("invalid --fail-on %q (want error|warning|never)", out.failOn)
@@ -367,6 +402,8 @@ func writeFindings(w io.Writer, findings []scan.Finding, score scan.Score, forma
 		return scan.WriteHTML(w, findings, score)
 	case "codequality":
 		return scan.WriteCodeQuality(w, findings)
+	case "agent":
+		return scan.WriteAgent(w, findings, score)
 	default:
 		if _, err := fmt.Fprintln(w, scan.FormatScoreLine(score)); err != nil {
 			return err
@@ -380,6 +417,11 @@ func writeFindings(w io.Writer, findings []scan.Finding, score scan.Score, forma
 				f.File, f.Line, f.Severity, f.Rule, f.Message, tag); err != nil {
 				return err
 			}
+			if f.Fix != "" {
+				if _, err := fmt.Fprintf(w, "  → fix: %s\n", f.Fix); err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	}
@@ -390,16 +432,19 @@ func exitCode(findings []scan.Finding, failOn string) int {
 		return 0
 	}
 	for _, f := range findings {
-		switch failOn {
-		case "warning":
-			if f.Severity == "warning" || f.Severity == "error" {
-				return 1
-			}
-		case "error":
-			if f.Severity == "error" {
-				return 1
-			}
+		if triggersFailOn(f, failOn) {
+			return 1
 		}
 	}
 	return 0
+}
+
+func triggersFailOn(f scan.Finding, failOn string) bool {
+	switch failOn {
+	case "warning":
+		return f.Severity == "warning" || f.Severity == "error"
+	case "error":
+		return f.Severity == "error"
+	}
+	return false
 }

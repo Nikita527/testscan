@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -32,8 +33,20 @@ type sarifTool struct {
 }
 
 type sarifDriver struct {
-	Name           string `json:"name"`
-	InformationURI string `json:"informationUri"`
+	Name           string      `json:"name"`
+	InformationURI string      `json:"informationUri"`
+	Rules          []sarifRule `json:"rules,omitempty"`
+}
+
+// sarifRule is a reportingDescriptor; help carries the default fix hint.
+type sarifRule struct {
+	ID   string    `json:"id"`
+	Help sarifHelp `json:"help"`
+}
+
+type sarifHelp struct {
+	Text     string `json:"text"`
+	Markdown string `json:"markdown,omitempty"`
 }
 
 type sarifResult struct {
@@ -92,13 +105,34 @@ func WriteSARIF(w io.Writer, findings []Finding) error {
 				"testscan/v1":             f.Fingerprint,
 			}
 		}
-		if f.QualName != "" {
-			r.Properties = map[string]any{
-				"qualName": f.QualName,
+		if f.QualName != "" || f.Fix != "" {
+			r.Properties = map[string]any{}
+			if f.QualName != "" {
+				r.Properties["qualName"] = f.QualName
+			}
+			if f.Fix != "" {
+				// No artifactChanges to offer, so the hint goes in properties
+				// (SARIF "fixes" requires concrete edits).
+				r.Properties["fix"] = f.Fix
 			}
 		}
 		results = append(results, r)
 	}
+
+	seen := map[string]bool{}
+	var ruleDescs []sarifRule
+	for _, f := range findings {
+		fix := DefaultFix(f.Rule)
+		if fix == "" || seen[f.Rule] {
+			continue
+		}
+		seen[f.Rule] = true
+		ruleDescs = append(ruleDescs, sarifRule{ID: f.Rule, Help: sarifHelp{
+			Text:     "Fix: " + fix,
+			Markdown: "**Fix:** " + fix,
+		}})
+	}
+	sort.Slice(ruleDescs, func(i, j int) bool { return ruleDescs[i].ID < ruleDescs[j].ID })
 
 	report := sarifReport{
 		Schema:  sarifSchema,
@@ -107,6 +141,7 @@ func WriteSARIF(w io.Writer, findings []Finding) error {
 			Tool: sarifTool{Driver: sarifDriver{
 				Name:           toolName,
 				InformationURI: toolURI,
+				Rules:          ruleDescs,
 			}},
 			Results: results,
 		}},

@@ -23,6 +23,8 @@ type Finding struct {
 	Rule     string `json:"rule"`
 	Severity string `json:"severity"`
 	Message  string `json:"message"`
+	// Fix is one concrete imperative action that resolves the finding.
+	Fix string `json:"fix,omitempty"`
 
 	// QualName is the qualified test name (Class.test_foo / test_foo).
 	QualName string `json:"qual_name,omitempty"`
@@ -274,6 +276,7 @@ func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
 
 	findings = FilterInlineIgnores(findings, contents)
 	ApplySeverity(findings, opts.RuleSeverity)
+	ApplyDefaultFixes(findings)
 	AssignFingerprints(findings, contents, pathRoot)
 	RelativizeFindings(findings, pathRoot)
 

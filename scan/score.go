@@ -108,10 +108,10 @@ func (p PrecisionInfo) Tier() string {
 // actionable/provisional until measured entries are added here (see LookupPrecision,
 // Measured and `testscan precision`).
 var RulePrecision = map[string]PrecisionInfo{
-	"no-assert":                           Measured(0, 4),
+	"no-assert":                           est(0.0), // rewritten on data-flow (0.5.0); old 0/4 measurement no longer applies
 	"broad-raises":                        Measured(2, 2),
 	"assert-in-emptyable-loop":            Measured(1, 1),
-	"mock-only-assert":                    Measured(0, 7),
+	"mock-only-assert":                    est(0.0), // rewritten on data-flow (0.5.0); old 0/7 measurement no longer applies
 	"mock-tautology":                      est(0.0),
 	"weak-assert":                         Measured(0, 13),
 	"near-duplicate-test":                 Measured(6, 7),
@@ -166,9 +166,10 @@ func RuleTier(rule string) string {
 // Trend compares the current actionable metrics to a previous compare point.
 // Densities are findings per 100 tests. A legacy compare point (a report that
 // predates per-100-tests density) has PrevActionableDensity < 0 and is compared
-// on count only.
+// on count only; a pre-0.5 compare point (confirmed_* metrics or a bare findings
+// array) is "incomparable" (see ComputeTrendPoint).
 type Trend struct {
-	Direction             string  `json:"direction"` // "improved"|"worsened"|"unchanged"
+	Direction             string  `json:"direction"` // "improved"|"worsened"|"unchanged"|"incomparable"
 	PrevActionableCount   int     `json:"prev_actionable_count"`
 	PrevActionableDensity float64 `json:"prev_actionable_density"`
 	// PrevConfirmedCount / PrevConfirmedDensity are deprecated aliases of the
@@ -204,6 +205,9 @@ type Score struct {
 	ProvisionalCount int
 	// ShownCount is the number of findings in the emitted set.
 	ShownCount int
+	// HiddenCount is the number of findings removed by the default display
+	// filters (focus + tier); 0 with --all.
+	HiddenCount int
 	// ActionableDensity is ActionableCount per 100 tests (0 when Tests == 0).
 	ActionableDensity float64
 	// ConfirmedCount is deprecated: equal to ActionableCount.
@@ -295,6 +299,26 @@ func ComputeTrend(currCount int, currDensity float64, prevCount int, prevDensity
 		t.Direction = "worsened"
 	default:
 		t.Direction = "unchanged"
+	}
+	return t
+}
+
+// ComputeTrendPoint is ComputeTrend for a loaded compare point. A legacy (pre-0.5)
+// point yields Direction "incomparable" (deltas are still reported on count). When
+// the current test count is unknown (0) the comparison is count-only, so a missing
+// density can never fake an "improved" trend.
+func ComputeTrendPoint(currCount int, currDensity float64, currTests int, prev ComparePoint) Trend {
+	prevDens := prev.ActionableDensity
+	if currTests <= 0 {
+		prevDens = -1
+	}
+	t := ComputeTrend(currCount, currDensity, prev.ActionableCount, prevDens)
+	// Report the density the compare point actually carried.
+	t.PrevActionableDensity = prev.ActionableDensity
+	t.PrevConfirmedDensity = prev.ActionableDensity
+	if prev.Legacy {
+		t.Direction = "incomparable"
+		t.DeltaDensity = 0
 	}
 	return t
 }
@@ -407,6 +431,21 @@ func gradeFor(score int) string {
 	}
 }
 
+// TrendIncomparable is the Trend.Direction for a pre-0.5 compare point.
+const TrendIncomparable = "incomparable"
+
+// TrendIncomparableText is the human text shown instead of a trend direction.
+const TrendIncomparableText = "trend: n/a (previous report uses pre-0.5 metrics)"
+
+// ParseErrorNote is the header fragment for files that could not be analyzed.
+func ParseErrorNote(n int) string {
+	noun := "files"
+	if n == 1 {
+		noun = "file"
+	}
+	return fmt.Sprintf("%d %s not analyzed (parse error)", n, noun)
+}
+
 // FormatScoreLine returns the one-line text header, e.g.
 //
 //	testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files
@@ -428,8 +467,18 @@ func FormatScoreLine(s Score) string {
 	} else {
 		line += fmt.Sprintf(" · %d files", s.Files)
 	}
+	if s.ParseSkipped > 0 {
+		line += fmt.Sprintf(" · %s", ParseErrorNote(s.ParseSkipped))
+	}
+	if s.HiddenCount > 0 {
+		line += fmt.Sprintf(" · %d hidden (use --all)", s.HiddenCount)
+	}
 	if s.Trend != nil {
-		line += fmt.Sprintf(" · trend %s (Δ %d)", s.Trend.Direction, s.Trend.DeltaCount)
+		if s.Trend.Direction == TrendIncomparable {
+			line += " · " + TrendIncomparableText
+		} else {
+			line += fmt.Sprintf(" · trend %s (Δ %d)", s.Trend.Direction, s.Trend.DeltaCount)
+		}
 		if s.Trend.CurrentPreBaseline {
 			line += " [pre-baseline]"
 		}
@@ -442,9 +491,45 @@ func FormatScoreLine(s Score) string {
 //	default            focus filter + actionable/provisional tiers only
 //	ShowLowPrecision   focus filter + all tiers
 //	All                no filtering at all
+//
+// parse-error findings and findings of ExplicitRules (rules requested via
+// --rule / --enable, CLI or config) bypass the focus and tier filters.
 type DisplayOptions struct {
 	All              bool
 	ShowLowPrecision bool
+	// ExplicitRules are rule IDs the user asked for explicitly.
+	ExplicitRules map[string]struct{}
+}
+
+// ExplicitSet builds DisplayOptions.ExplicitRules from rule ID lists.
+func ExplicitSet(lists ...[]string) map[string]struct{} {
+	var m map[string]struct{}
+	for _, l := range lists {
+		for _, id := range l {
+			if m == nil {
+				m = map[string]struct{}{}
+			}
+			m[id] = struct{}{}
+		}
+	}
+	return m
+}
+
+// shownByDisplay reports whether f passes the display filters for opts.
+func shownByDisplay(f Finding, opts DisplayOptions) bool {
+	if opts.All || f.Rule == "parse-error" {
+		return true
+	}
+	if _, ok := opts.ExplicitRules[f.Rule]; ok {
+		return true
+	}
+	if len(FilterFocus([]Finding{f})) == 0 {
+		return false
+	}
+	if !opts.ShowLowPrecision && RuleTier(f.Rule) == TierLow {
+		return false
+	}
+	return true
 }
 
 // FilterForDisplay applies the display filters (focus, then tier) for opts.
@@ -452,11 +537,27 @@ func FilterForDisplay(findings []Finding, opts DisplayOptions) []Finding {
 	if opts.All {
 		return findings
 	}
-	findings = FilterFocus(findings)
-	if !opts.ShowLowPrecision {
-		findings = FilterTiers(findings)
+	out := make([]Finding, 0, len(findings))
+	for _, f := range findings {
+		if shownByDisplay(f, opts) {
+			out = append(out, f)
+		}
 	}
-	return findings
+	return out
+}
+
+// HiddenByDisplay returns the findings FilterForDisplay would drop for opts.
+func HiddenByDisplay(findings []Finding, opts DisplayOptions) []Finding {
+	if opts.All {
+		return nil
+	}
+	var out []Finding
+	for _, f := range findings {
+		if !shownByDisplay(f, opts) {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // TrendCurrentMetrics returns actionable count and per-100-tests density used as

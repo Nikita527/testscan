@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Nikita527/testscan/scan"
@@ -118,5 +119,32 @@ func TestLoadBaseline_LegacyArray(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].File != "a.py" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestWriteJSON_HiddenCount(t *testing.T) {
+	score := scan.CalculateScore(nil, 1)
+	score.HiddenCount = 9
+	var buf bytes.Buffer
+	if err := scan.WriteJSON(&buf, nil, score); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"hidden_count": 9`) {
+		t.Fatalf("want hidden_count in summary: %s", buf.String())
+	}
+}
+
+func TestWriteAgent_HiddenAndParse(t *testing.T) {
+	score := scan.CalculateScoreWithTests(nil, 1, 5)
+	score.HiddenCount = 3
+	score.ParseSkipped = 2
+	var buf bytes.Buffer
+	if err := scan.WriteAgent(&buf, nil, score); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"3 hidden (use --all)", "2 files not analyzed (parse error)"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("want %q in %q", want, buf.String())
+		}
 	}
 }

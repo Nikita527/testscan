@@ -359,10 +359,10 @@ func strSliceEq(a, b []string) bool {
 }
 
 func TestDisplayOptions(t *testing.T) {
-	if got := displayOptions(cliArgs{}); got != (scan.DisplayOptions{}) {
+	if got := displayOptions(cliArgs{}); got.All || got.ShowLowPrecision || len(got.ExplicitRules) != 0 {
 		t.Fatalf("default must be focus+tiers (zero options), got %+v", got)
 	}
-	if got := displayOptions(cliArgs{focus: true}); got != (scan.DisplayOptions{}) {
+	if got := displayOptions(cliArgs{focus: true}); got.All || got.ShowLowPrecision || len(got.ExplicitRules) != 0 {
 		t.Fatalf("--focus must be a no-op, got %+v", got)
 	}
 	if got := displayOptions(cliArgs{all: true}); !got.All {
@@ -370,6 +370,43 @@ func TestDisplayOptions(t *testing.T) {
 	}
 	if got := displayOptions(cliArgs{showLowPrecision: true}); got.All || !got.ShowLowPrecision {
 		t.Fatalf("--show-low-precision keeps focus: %+v", got)
+	}
+}
+
+func TestDisplayOptions_ExplicitRules(t *testing.T) {
+	got := displayOptions(cliArgs{only: []string{"a"}, enable: []string{"b", "c"}})
+	for _, id := range []string{"a", "b", "c"} {
+		if _, ok := got.ExplicitRules[id]; !ok {
+			t.Fatalf("missing explicit rule %s: %+v", id, got.ExplicitRules)
+		}
+	}
+	// Explicit rule findings are shown despite the default filters.
+	in := []scan.Finding{{Rule: "empty-test-x", Severity: "note"}, {Rule: "other", Severity: "note"}}
+	opts := scan.DisplayOptions{ExplicitRules: scan.ExplicitSet([]string{"empty-test-x"})}
+	out := scan.FilterForDisplay(in, opts)
+	if len(out) != 1 || out[0].Rule != "empty-test-x" {
+		t.Fatalf("explicit rule must bypass filters: %+v", out)
+	}
+}
+
+func TestHiddenGateWarning(t *testing.T) {
+	hidden := []scan.Finding{
+		{Rule: "empty-test", Severity: "error"},
+		{Rule: "empty-test", Severity: "error"},
+		{Rule: "todo-test", Severity: "note"},
+	}
+	want := "testscan: 2 findings at or above --fail-on error are hidden by the default view (unmeasured precision); use --all to gate on them"
+	if got := hiddenGateWarning(hidden, "error"); got != want {
+		t.Fatalf("got %q", got)
+	}
+	if got := hiddenGateWarning(hidden, "never"); got != "" {
+		t.Fatalf("never: %q", got)
+	}
+	if got := hiddenGateWarning(hidden[2:], "warning"); got != "" {
+		t.Fatalf("notes do not gate: %q", got)
+	}
+	if got := hiddenGateWarning(nil, "error"); got != "" {
+		t.Fatalf("none hidden: %q", got)
 	}
 }
 
@@ -425,5 +462,38 @@ func TestWriteFindings_TextAndJSONScore(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("json missing %s: %s", want, out)
 		}
+	}
+}
+
+func TestWriteFindings_TextFixAndAgent(t *testing.T) {
+	fs := []scan.Finding{{
+		File: "t.py", Line: 4, Rule: "sleep-in-test", Severity: "warning",
+		Message: "sleep in test", Fix: "remove `time.sleep(...)`",
+	}}
+	score := scan.CalculateScoreWithTests(fs, 1, 5)
+
+	var text strings.Builder
+	if err := writeFindings(&text, fs, score, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text.String(), "t.py:4: warning sleep-in-test: sleep in test\n  → fix: remove `time.sleep(...)`\n") {
+		t.Fatalf("text output:\n%s", text.String())
+	}
+
+	var agent strings.Builder
+	if err := writeFindings(&agent, fs, score, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	want := "t.py:4 sleep-in-test — sleep in test → remove `time.sleep(...)`\n" +
+		"testscan: 1 finding (1 warning) · 5 tests\n"
+	if agent.String() != want {
+		t.Fatalf("agent output:\n%s", agent.String())
+	}
+}
+
+func TestParseArgs_AgentFormat(t *testing.T) {
+	a, err := parseArgs([]string{"--format", "agent"})
+	if err != nil || a.format != "agent" {
+		t.Fatalf("got %+v, %v", a, err)
 	}
 }

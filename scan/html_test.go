@@ -301,7 +301,7 @@ func TestWriteHTML_ToolErrors(t *testing.T) {
 		`data-sev="tool-error"`,
 		`data-sev="tool-error"> tool error</label>`,
 		"<strong>1</strong> tool error",
-		" · 1 tool error</p>",
+		" · 1 file not analyzed (parse error)</p>",
 		`data-sev="note"`,
 	} {
 		if !strings.Contains(out, want) {
@@ -392,5 +392,56 @@ func TestWriteHTML_TrendInHero(t *testing.T) {
 	}
 	if !strings.Contains(out, "pre-baseline") {
 		t.Fatalf("want pre-baseline trend label: %s", out[:min(800, len(out))])
+	}
+}
+
+func TestWriteHTML_SpecialCharFileNameAndSafeJS(t *testing.T) {
+	name := `tests/we"ird\name.py`
+	findings := []scan.Finding{
+		{File: name, Line: 3, Rule: "empty-test", Severity: "error", Message: "m", Fingerprint: "fp1"},
+	}
+	var buf bytes.Buffer
+	if err := scan.WriteHTML(&buf, findings, scan.CalculateScore(findings, 1)); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `data-file="tests/we&#34;ird\name.py"`) {
+		t.Fatalf("want escaped data-file attribute, got: %s", out)
+	}
+	if strings.Contains(out, `data-file="tests/we"ird`) {
+		t.Fatal("raw quote leaked into attribute")
+	}
+	// No selector is built by concatenating data values.
+	for _, bad := range []string{`a[data-file="' +`, `a[data-rule="' +`} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("JS builds selector from data: %q", bad)
+		}
+	}
+	// Independent init blocks are guarded so TP/FP + export survive an apply() failure.
+	for _, want := range []string{"function safe(fn)", "safe(apply)", "safe(loadLabels)", "safe(renderLabels)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("want %q in JS", want)
+		}
+	}
+}
+
+func TestWriteHTML_HiddenParseAndIncomparable(t *testing.T) {
+	score := scan.CalculateScore(nil, 1)
+	score.HiddenCount = 4
+	score.ParseSkipped = 2
+	tr := scan.ComputeTrendPoint(1, 0, 10, scan.ComparePoint{ActionableCount: 3, ActionableDensity: -1, Legacy: true})
+	score.Trend = &tr
+	var buf bytes.Buffer
+	if err := scan.WriteHTML(&buf, nil, score); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"4 hidden (use --all)", "2 files not analyzed (parse error)", "trend: n/a (previous report uses pre-0.5 metrics)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("want %q in HTML", want)
+		}
+	}
+	if strings.Contains(out, "trend improved") || strings.Contains(out, "trend worsened") {
+		t.Fatal("legacy compare point must not report improved/worsened")
 	}
 }

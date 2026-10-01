@@ -17,7 +17,9 @@ type JSONSummary struct {
 	ActionablePer100 float64 `json:"actionable_per_100_tests"`
 	ProvisionalCount int     `json:"provisional_count"`
 	ShownCount       int     `json:"shown_count"`
-	Tests            int     `json:"tests"`
+	// HiddenCount is the number of findings hidden by the default display filters.
+	HiddenCount int `json:"hidden_count"`
+	Tests       int `json:"tests"`
 	// Deprecated: ConfirmedCount equals actionable_count, ConfirmedDensity equals
 	// actionable_per_100_tests. Kept for one release; will be removed.
 	ConfirmedCount   int     `json:"confirmed_count"`
@@ -58,6 +60,7 @@ func WriteJSON(w io.Writer, findings []Finding, score Score) error {
 			ActionablePer100: score.ActionableDensity,
 			ProvisionalCount: score.ProvisionalCount,
 			ShownCount:       score.ShownCount,
+			HiddenCount:      score.HiddenCount,
 			Tests:            score.Tests,
 			ConfirmedCount:   score.ActionableCount,
 			ConfirmedDensity: score.ActionableDensity,

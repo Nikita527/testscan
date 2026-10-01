@@ -77,6 +77,7 @@ func (assertInEmptyableLoop) Check(file scan.File) []scan.Finding {
 			Line:     firstLine,
 			Rule:     "assert-in-emptyable-loop",
 			Severity: "warning",
+			Fix:      `add ` + "`assert " + hint + "`" + ` before the loop so an empty collection fails the test`,
 			Message:  `only asserts are inside a for-loop over an emptyable collection; assert the collection is non-empty first (e.g. assert ` + hint + `, "expected items")`,
 			QualName: qualName(t),
 		})

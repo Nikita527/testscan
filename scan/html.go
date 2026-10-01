@@ -241,6 +241,10 @@ func writeFindingList(b *strings.Builder, items []collapsedFinding, pathRoot str
 				strings.Join(lines, ","),
 				html.EscapeString(f.Rule), html.EscapeString(f.File), cf.FPLines[0])
 		}
+		fixHTML := ""
+		if f.Fix != "" {
+			fixHTML = fmt.Sprintf(`<div class="fix">Fix: %s</div>`, html.EscapeString(f.Fix))
+		}
 		tierHTML := tierBadgeHTML(f.Rule)
 		locHTML := fmt.Sprintf(`<a class="loc" href="%s">:%d</a>`,
 			html.EscapeString(vscodeFileURL(pathRoot, f.File, f.Line)), f.Line)
@@ -248,14 +252,14 @@ func writeFindingList(b *strings.Builder, items []collapsedFinding, pathRoot str
 			"<li class=\"finding\" data-sev=\"%s\" data-rule=\"%s\" data-file=\"%s\" data-msg=\"%s\">"+
 				"<span class=\"sev sev-%s\">%s</span> "+
 				"%s"+
-				"<span class=\"msg\">%s%s%s%s%s%s</span>%s</li>\n",
+				"<span class=\"msg\">%s%s%s%s%s%s%s</span>%s</li>\n",
 			sev,
 			html.EscapeString(f.Rule),
 			html.EscapeString(strings.ToLower(f.File)),
 			html.EscapeString(strings.ToLower(f.Message)),
 			sev, html.EscapeString(displaySevLabel(f, sev)),
 			locHTML,
-			msgHTML, badge, related, ruleAttr, tierHTML, labelHTML, snippet,
+			msgHTML, badge, related, ruleAttr, tierHTML, labelHTML, fixHTML, snippet,
 		)
 	}
 	b.WriteString("</ul>\n")
@@ -355,6 +359,9 @@ func writeHeroMain(b *strings.Builder, score Score) {
 	}
 	if score.Trend != nil {
 		label := fmt.Sprintf("trend %s (Δ %d)", score.Trend.Direction, score.Trend.DeltaCount)
+		if score.Trend.Direction == TrendIncomparable {
+			label = TrendIncomparableText
+		}
 		title := "Trend vs --compare / --baseline"
 		if score.Trend.CurrentPreBaseline {
 			label += " · pre-baseline"
@@ -377,7 +384,10 @@ func writeHeroSecondary(b *strings.Builder, score Score) {
 		line += fmt.Sprintf(" · %d files", score.Files)
 	}
 	if score.ParseSkipped > 0 {
-		line += fmt.Sprintf(" · %d tool error", score.ParseSkipped)
+		line += " · " + ParseErrorNote(score.ParseSkipped)
+	}
+	if score.HiddenCount > 0 {
+		line += fmt.Sprintf(" · %d hidden (use --all)", score.HiddenCount)
 	}
 	fmt.Fprintf(b, "<p class=\"hero-secondary\">%s</p>\n", html.EscapeString(line))
 }
@@ -742,6 +752,12 @@ main { padding: 1.25rem 1.5rem 3rem; max-width: 72rem; }
   font-size: .78rem;
   color: var(--muted);
 }
+.fix {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.85;
+}
 .related {
   display: inline-block;
   margin-left: .35rem;
@@ -792,6 +808,19 @@ main { padding: 1.25rem 1.5rem 3rem; max-width: 72rem; }
 
 const htmlJS = `
 (function () {
+  // Each independent init block runs in safe() so one failure cannot stop the rest.
+  function safe(fn) {
+    try { fn(); } catch (e) { if (window.console && console.error) console.error('testscan report:', e); }
+  }
+  // tocLink finds a TOC anchor by dataset value without building a selector
+  // from data (file names may contain quotes or backslashes).
+  function tocLink(container, key, value) {
+    const links = document.querySelectorAll(container + ' a');
+    for (let i = 0; i < links.length; i++) {
+      if (links[i].dataset[key] === value) return links[i];
+    }
+    return null;
+  }
   const sevBoxes = [...document.querySelectorAll('.filters input[data-sev]')];
   const q = document.getElementById('q');
   const viewBtns = [...document.querySelectorAll('.view-btn')];
@@ -830,20 +859,20 @@ const htmlJS = `
     root.querySelectorAll('.file-section').forEach(sec => {
       const any = [...sec.querySelectorAll('.finding')].some(li => !li.classList.contains('is-hidden'));
       sec.classList.toggle('is-hidden', !any);
-      const toc = document.querySelector('.toc-file a[data-file="' + sec.dataset.file + '"]');
+      const toc = tocLink('.toc-file', 'file', sec.dataset.file);
       if (toc && toc.parentElement) toc.parentElement.classList.toggle('is-hidden', !any);
     });
     root.querySelectorAll('.rule').forEach(sec => {
       const any = [...sec.querySelectorAll('.finding')].some(li => !li.classList.contains('is-hidden'));
       sec.classList.toggle('is-hidden', !any);
-      const toc = document.querySelector('.toc-rule a[data-rule="' + sec.dataset.rule + '"]');
+      const toc = tocLink('.toc-rule', 'rule', sec.dataset.rule);
       if (toc && toc.parentElement) toc.parentElement.classList.toggle('is-hidden', !any);
     });
   }
-  viewBtns.forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
-  sevBoxes.forEach(b => b.addEventListener('change', apply));
-  q.addEventListener('input', apply);
-  apply();
+  safe(() => viewBtns.forEach(b => b.addEventListener('click', () => safe(() => setView(b.dataset.view)))));
+  safe(() => sevBoxes.forEach(b => b.addEventListener('change', () => safe(apply))));
+  safe(() => { if (q) q.addEventListener('input', () => safe(apply)); });
+  safe(apply);
   // --- TP/FP labelling (state kept in web storage, every access guarded) ---
   const LABEL_KEY = 'testscan.labels.v1';
   let labels = {};
@@ -913,15 +942,17 @@ const htmlJS = `
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
-  document.addEventListener('click', ev => {
+  safe(() => document.addEventListener('click', ev => safe(() => {
     const btn = ev.target && ev.target.closest ? ev.target.closest('.lbl-btn') : null;
     if (!btn) return;
     const span = btn.closest('.lbl');
     if (span) toggleLabel(span, btn.dataset.label);
+  })));
+  safe(() => {
+    const exportBtn = document.getElementById('export-labels');
+    if (exportBtn) exportBtn.addEventListener('click', () => safe(exportLabels));
   });
-  const exportBtn = document.getElementById('export-labels');
-  if (exportBtn) exportBtn.addEventListener('click', exportLabels);
-  loadLabels();
-  renderLabels();
+  safe(loadLabels);
+  safe(renderLabels);
 })();
 `
