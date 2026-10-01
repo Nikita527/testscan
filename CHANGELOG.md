@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-01
+
 ### Added
 
 - **Confirmed metrics + trend:** summary / text / HTML emphasize `confirmed_count` and `confirmed_density` (confirmed = rule precision ≥ `MinPrecisionForDisplay` = 0.3, after baseline + display filter; same `log10(files+1)` density denom as Health Score). `--compare path.json` trends vs a previous JSON report (`improved` / `worsened` / `unchanged` + deltas). If `--compare` is omitted but `--baseline` is set, the baseline file is the compare point. When `--baseline` is set (with or without a separate `--compare`), trend **current** uses pre-baseline confirmed metrics so suppressing known noise cannot fake an “improved” trend; `summary.confirmed_*` remains post-baseline (new issues only). Marked in JSON as `current_pre_baseline`, in text/HTML as `[pre-baseline]` / caption.
@@ -27,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `error-contract-assert`: `error-status-only = false` also gates on error-shaped tests (name / `errors` payload), not only non-2xx status asserts.
 - Pipeline order remains: scan → baseline → focus → low-precision filter → score (+ trend) → emit.
 - Daily CI docs: prefer `--diff` + `--baseline` + `--focus` (+ optional `--compare` / `codequality` / `sarif`).
+
 ### Deprecated
 
 - **Health Score / A–F grade** as the primary summary signal: still computed and present in JSON (`health_score`, `grade`, `grade_deprecated: true`); text/HTML default to confirmed density + trend. Use `--show-grade` for the old emphasis. Planned removal of grade as a primary metric in a later release.
@@ -113,7 +116,8 @@ Accuracy roadmap + Health Score. CI that parsed `--format json` as a bare findin
 
 Initial tagged release: Go CLI + PyPI launcher, default AI-test smell rules, text/JSON/SARIF/HTML output, baseline, config, and pre-commit docs.
 
-[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Nikita527/testscan/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Nikita527/testscan/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Nikita527/testscan/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Nikita527/testscan/releases/tag/v0.1.0
