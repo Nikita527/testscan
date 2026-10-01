@@ -123,12 +123,7 @@ func TestOnlyHappyPath_CustomNegativeNames(t *testing.T) {
 		{Name: "test_c", QualName: "test_c", Lineno: 5, HasAssert: true},
 		{Name: "test_forbidden_thing", QualName: "test_forbidden_thing", Lineno: 7, HasAssert: true},
 	}}
-	file := scan.File{
-		Path:    "t.py",
-		Content: []byte("def test_forbidden_thing():\n    assert True\n"),
-		ModelOK: true,
-		Model:   model,
-	}
+	file := sutFile(t, model.Tests, "def test_forbidden_thing():\n    assert True\n")
 
 	hit := rules.NewOnlyHappyPathOpts(rules.OnlyHappyPathOpts{
 		NegativeNames: []string{"invalid"},

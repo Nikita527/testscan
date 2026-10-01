@@ -2,12 +2,12 @@
 
 [English](rules.md) | Русский
 
-У каждого правила из `Default()` есть минимальный пример **hit** (должен сработать) и **clean** (не должен). Эвристики текстовые или AST — см. [README.ru.md](../README.ru.md) про ложные срабатывания, **`--diff`** / **`--focus`** / **`--compare`**, confirmed density (`MinPrecisionForDisplay` = 0.3), deprecated Health Score (`MinPrecisionForGrade` = 0.15) и **tool errors** (`parse-error`).
+У каждого правила из `Default()` есть минимальный пример **hit** (должен сработать) и **clean** (не должен). Эвристики текстовые или AST — см. [README.ru.md](../README.ru.md) про ложные срабатывания, **`--diff`** / **`--all`** / **`--compare`**, тиры точности (actionable / provisional / low) и плотность actionable на 100 тестов и **tool errors** (`parse-error`).
 
 Отключить правило: `--disable ID` или `disable = ["ID"]` в `.testscan.toml` / `[tool.testscan]`.  
 Включить opt-in: `--enable ID` или `enable = ["ID"]` (см. **Optional** в конце).
 
-**Severity vs score:** severity ниже влияет на `--fail-on` и чипы в UI. **Confirmed** считает findings с precision ≥ 0.3 (после baseline / display-фильтра). Deprecated Health Score штрафует только **error**/**warning** при precision ≥ 0.15; **note** и tool errors на grade не влияют.
+**Severity vs score:** severity ниже влияет на `--fail-on` и чипы в UI. **Actionable** считает findings правил, у которых измеренная точность проходит порог (нижняя граница Вильсона ≥ 0.7, N ≥ 20) после baseline / display-фильтров; provisional (precision ≥ 0.8, N ≥ 5) показываются, но считаются отдельно; остальные правила — **low** и скрыты без `--show-low-precision` / `--all`. Пока нет размеченных данных, precision правила в отчётах — `estimated`. Health Score / grade deprecated и есть только в JSON; **note** и tool errors на него не влияют.
 
 ---
 
@@ -163,6 +163,8 @@ def test_bar():
 **Severity:** note (настраивается)  
 **Когда (эвристика, по умолчанию):** больше `min-tests` (default 3) тестов **на один SUT** (первый не-framework вызов) и нет признаков негатива: `pytest.raises` / `warns` / `assertRaises`, status 4xx/5xx / `status.HTTP_4xx_*`, `is None` / `is False` / `not` / `not in` / `!=` / `== []|{}|""`, `errors`/`detail`, `is_valid() is False`, `side_effect` Exception, `caplog` WARNING/ERROR, негативные имена / id в parametrize (`403`, `rejects`, `blocked`, `gated`, `degrad`, `fallback`, …). Чистые mapper/helper без ветвлений и исключений не флагаются.
 
+**Определение SUT** (одна общая реализация, `rules/sut.go`: `SUTContext.Calls`). SUT - только вызов, корень которого импортирован из **проекта**: не fixture/параметр, не локальная переменная с литералом (`json_payload = json.dumps(...)`), не модульный helper тестового файла (`_rows`), не метод литерала (`"x".join`), не stdlib (`sys.stdlib_module_names`), не `pytest` / `django` / `rest_framework` / `unittest` / `mock` / сторонний пакет (top-level пакет должен быть каталогом или модулем в корне проекта, `<root>/src` или выше тестового файла, вне `tests/`), не относительный импорт и не CapWords-класс, который только передаётся аргументом в другой вызов (DTO вроде `SourceFieldMeta(...)`). Локальное `x = Service()` разворачивается в `Service.method`. Тесты без вызова проектного кода пропускаются. SUT-функция с аннотацией `-> str|int|float|bool|bytes` без `raise` не имеет контракта ошибок и не флагается.
+
 **Coverage mode:** `[rules.only-happy-path] mode = "coverage"` и `coverage = "coverage.json"`, либо `--coverage path.json`. Эвристики по файлам отключаются; правило ищет непокрытые `raise` / `except` (и связанные missing branches) в не-тестовых файлах из JSON-отчёта coverage.py. По умолчанию выключен.
 
 Настройки: `min-tests`, `negative-names`, `mode`, `coverage`.
@@ -170,14 +172,17 @@ def test_bar():
 Hit (эвристика):
 
 ```python
+from app.service import process  # project code
+
+
 def test_a():
-    assert 1 == 1
+    assert process(1) == 1
 def test_b():
-    assert 2 == 2
+    assert process(2) == 2
 def test_c():
-    assert 3 == 3
+    assert process(3) == 3
 def test_d():
-    assert 4 == 4
+    assert process(4) == 4
 ```
 
 Clean:
@@ -534,8 +539,10 @@ def test_ok():
 
 ## wall-clock-in-test
 
-**Severity:** note  
-**When:** `datetime.now` / `date.today` без freezegun / time-machine / `freeze_time`.
+**Severity:** note; **warning** в проектах с timezone-aware датами  
+**When:** наивные `datetime.now()` / `datetime.today()` / `datetime.utcnow()` / `date.today()` без freezegun / time-machine / `freeze_time`. Вызовы с tz (`datetime.now(timezone.utc)`, `datetime.now(tz=...)`, `.astimezone()`, `.replace(tzinfo=...)`) не репортятся никогда.
+
+**Контекст проекта.** Проект считается timezone-aware, если в Django settings `USE_TZ = True` (`DJANGO_SETTINGS_MODULE` из `pyproject.toml` / `pytest.ini` / `setup.cfg` / `tox.ini` / `manage.py`, иначе любой `settings*.py` или файл пакета `settings/`), либо не-тестовый код использует `django.utils.timezone` `now` / `localdate`. Обход ограничен (пропускает `.venv`, `venv`, `node_modules`, `.git`, `site-packages`, `tests`, `migrations`; максимум 5000 файлов) и выполняется один раз за запуск. В таком проекте находка - `warning` (`project uses timezone-aware dates (timezone.localdate()); naive datetime.now() diverges near midnight ...`), и только если значение попадает в поле модели/фабрики, assert или аргумент вызова. Не репортится, если значение не используется, находится в теле `pytest.raises` или передаётся в вызов внутри негативного теста (имя/assert вроде `missing`, `error`, `is None`). В остальных проектах остаётся `note` для любого наивного чтения.
 
 Hit:
 
@@ -581,21 +588,29 @@ def test_ok():
 ## near-duplicate-test
 
 **Severity:** note  
-**Когда:** два или более теста в одном файле имеют одинаковое тело после нормализации строковых/числовых литералов **и** совпадают по полярности, SUT-вызову и значимым литералам assert (enum / HTTP-статусы). Пары accept/reject, разные SUT и разные enum-ожидания не флагуются. Кластеры 3+ — одна находка с наброском `@pytest.mark.parametrize`.
+**Когда:** кандидат на parametrize: два теста с одинаковым телом после нормализации литералов, которые отличаются **только входными литералами** (аргументы вызовов, setup). Assert'ы должны совпадать полностью, включая правые части сравнений, status/enum-атрибуты и аргументы `pytest.raises(E, match=...)`; списки декораторов совпадают; имена не антонимы (`passes`/`dropped`, `demotes`/`retries`, `valid`/`invalid`, `with`/`without`, `is_null`/`is_not_null`, …). Тесты соседние в одной области (не более одного теста между ними), небольшие (до 15 строк) и не имеют двух разных docstring (документированные отдельные сценарии). Кластеры 3+ — одна находка на первом тесте; пара — на более позднем («same body and assertions as test_x:N, differing only in input literals — candidate for `@pytest.mark.parametrize`»).
 
 Hit:
 
 ```python
-def test_a():
-    x = 1
-    assert x == 1
+def test_unknown_user_returns_404(client):
+    resp = client.get("/users/999")
+    assert resp.status_code == 404
 
-def test_b():
-    x = 2
-    assert x == 2
+def test_unknown_order_returns_404(client):
+    resp = client.get("/orders/123")
+    assert resp.status_code == 404
 ```
 
 Clean:
+
+```python
+def test_plan_free_limit():
+    assert limit_for("free") == 10
+
+def test_plan_pro_limit():
+    assert limit_for("pro") == 100   # другое ожидаемое значение
+```
 
 ```python
 def test_accepts_item():
@@ -618,7 +633,8 @@ def test_default_chain():
 ## name-body-mismatch
 
 **Severity:** note  
-**Когда:** имя теста намекает на негативный/ошибочный кейс (`rejects_*`, `*_404`, `fails_*`, …), а в теле нет соответствующего сигнала (`pytest.raises`, assert на 4xx/5xx, `assert not`, …).
+**Opt-in:** выключено по умолчанию (0/52 precision на размеченном корпусе mp-be); включается `--enable name-body-mismatch`.  
+**Когда:** имя теста намекает на негативный/ошибочный кейс (`rejects_invalid_*`, `*_404`, `fails_*`, `returns_error`, …), а в теле нет соответствующего сигнала (`pytest.raises`, assert на 4xx/5xx, `assert not`, …). Доменные проверки тоже считаются сигналом: сравнение с `FAILED`/`ERROR`/`REJECTED`/`SKIPPED`/…, `error_code`/`.code`, непустые `errors`/`issues`, счётчики `failed`, `assert_not_called()`, `not x.is_valid()`, try/except/else-fail. Отрицающие и resilience-имена (`does_not_fail`, `never_raises`, `fails_open`, `fallback`, `survives`, `*_when_x_fails`) и доменные глаголы (`bulk_reject`) не считаются заявкой на ошибку.
 
 Hit:
 
@@ -692,7 +708,7 @@ def test_determinism():
 ## commented-assert
 
 **Severity:** note  
-**Когда:** строка — закомментированный `assert` / `self.assert*` (`# assert …`).
+**Когда:** комментарий — закомментированный `assert …` либо вызов `self.assert*(…)` / `assert_*(…)`. Текст должен выглядеть как код (парные кавычки/скобки, нет соседних «голых» слов), поэтому проза вроде `# Assert on_commit ran before GET.` или `# assert that the cache is warm.` не срабатывает.
 
 Hit:
 
@@ -716,7 +732,7 @@ def test_ok():
 ## overbroad-equality
 
 **Severity:** note  
-**Когда:** assert сравнивает с огромным литералом dict/list/tuple. Пропускает контракт API, где одна сторона — `response.data` / `resp.data` / `*.json()`-подобный body.
+**Когда:** assert сравнивает с огромным литералом dict/list/tuple. Пропускает контракт API с корнем `response.data` / `resp.data` / `r.data` / `*.json()` (включая индексы поверх), результаты `.values()` / `.values_list()`, `error_details` и наборы/списки строк-идентификаторов (permission- и error-code множества).
 
 Hit:
 

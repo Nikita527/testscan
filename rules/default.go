@@ -28,7 +28,6 @@ func Default() []scan.Rule {
 		NewWallClockInTest(),
 		NewSkipWithoutReason(),
 		NewNearDuplicateTest(),
-		NewNameBodyMismatch(),
 		NewSelfPatchedSUT(),
 		NewExpectedRecomputed(),
 		NewCommentedAssert(),
@@ -43,6 +42,7 @@ func Optional() []scan.Rule {
 		NewRaisesWithoutCheck(RaisesWithoutCheckOpts{}),
 		NewMissingMirrorTest(MissingMirrorTestOpts{}),
 		NewRBACMutationGuard(RBACMutationGuardOpts{}),
+		NewNameBodyMismatch(), // 0/52 precision on mp-be corpus; opt-in
 	}
 }
 

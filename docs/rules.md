@@ -2,12 +2,12 @@
 
 English | [Русский](rules.ru.md)
 
-Each default rule below has a minimal **hit** (should report) and **clean** (should not) example. Heuristics are text- or AST-based; see the main [README](../README.md) for false-positive notes, **`--diff`** / **`--focus`** / **`--compare`**, confirmed density (`MinPrecisionForDisplay` = 0.3), deprecated Health Score (`MinPrecisionForGrade` = 0.15), and **tool errors** (`parse-error`).
+Each default rule below has a minimal **hit** (should report) and **clean** (should not) example. Heuristics are text- or AST-based; see the main [README](../README.md) for false-positive notes, **`--diff`** / **`--all`** / **`--compare`**, precision tiers (actionable / provisional / low) and actionable density per 100 tests, and **tool errors** (`parse-error`).
 
 Disable a rule: `--disable ID` or `disable = ["ID"]` in `.testscan.toml` / `[tool.testscan]`.  
 Enable an opt-in rule: `--enable ID` or `enable = ["ID"]` (see **Optional rules** at the end).
 
-**Severity vs score:** default severities below drive `--fail-on` and UI chips. **Confirmed** metrics count findings with precision ≥ 0.3 (after baseline / display filter). Deprecated Health Score only penalizes **error** and **warning** when precision ≥ 0.15; **note** findings and tool errors never affect the grade.
+**Severity vs score:** default severities below drive `--fail-on` and UI chips. **Actionable** metrics count findings of rules whose measured precision clears the actionable bar (Wilson lower bound ≥ 0.7, N ≥ 20), after baseline / display filters; provisional rules (precision ≥ 0.8, N ≥ 5) are shown but counted separately; every other rule is **low** and hidden unless `--show-low-precision` / `--all`. The catalog precision shown for a rule in reports is `estimated` until labelled data exists. Health Score / grade is deprecated and JSON-only; **note** findings and tool errors never affect it.
 
 ---
 
@@ -163,6 +163,8 @@ def test_bar():
 **Severity:** note (configurable)  
 **When (heuristic, default):** more than `min-tests` (default 3) tests **for the same SUT** (primary non-framework call) and no negative-path signals: `pytest.raises` / `warns` / `assertRaises`, status 4xx/5xx / `status.HTTP_4xx_*`, `is None` / `is False` / `not` / `not in` / `!=` / `== []|{}|""`, `errors`/`detail`, `is_valid() is False`, `side_effect` Exception, `caplog` WARNING/ERROR, negative names / parametrize ids (`403`, `rejects`, `blocked`, `gated`, `degrad`, `fallback`, …). Pure mappers/helpers without branches or exceptions are not flagged.
 
+**SUT definition** (one shared implementation, `rules/sut.go`: `SUTContext.Calls`). A call is the system under test only if its root name is imported from the **project**: not a fixture/parameter, not a literal-valued local (`json_payload = json.dumps(...)`), not a module-level helper of the test file (`_rows`), not a method of a literal (`"x".join`), not stdlib (`sys.stdlib_module_names`), not `pytest` / `django` / `rest_framework` / `unittest` / `mock` / third-party (the top-level package must be a directory or module under the project root, `<root>/src` or above the test file, outside `tests/`), not a relative import, and not a CapWords class constructed only as an argument of another call (DTO like `SourceFieldMeta(...)`). Local `x = Service()` resolves to `Service.method`. Tests with no project SUT call are skipped. A SUT function annotated `-> str|int|float|bool|bytes` that never `raise`s has no error contract and is not flagged.
+
 **Coverage mode:** set `[rules.only-happy-path] mode = "coverage"` and `coverage = "coverage.json"`, or pass `--coverage path.json`. Then the rule skips per-file heuristics and reports uncovered `raise` / `except` lines (and related missing branches) in non-test files from a coverage.py JSON report. Default: off.
 
 Configurable: `min-tests`, `negative-names`, `mode`, `coverage`.
@@ -170,14 +172,17 @@ Configurable: `min-tests`, `negative-names`, `mode`, `coverage`.
 Hit (heuristic):
 
 ```python
+from app.service import process  # project code
+
+
 def test_a():
-    assert 1 == 1
+    assert process(1) == 1
 def test_b():
-    assert 2 == 2
+    assert process(2) == 2
 def test_c():
-    assert 3 == 3
+    assert process(3) == 3
 def test_d():
-    assert 4 == 4
+    assert process(4) == 4
 ```
 
 Clean:
@@ -534,8 +539,10 @@ def test_ok():
 
 ## wall-clock-in-test
 
-**Severity:** note  
-**When:** `datetime.now` / `date.today` without freezegun / time-machine / `freeze_time`.
+**Severity:** note; **warning** in timezone-aware projects  
+**When:** naive `datetime.now()` / `datetime.today()` / `datetime.utcnow()` / `date.today()` without freezegun / time-machine / `freeze_time`. Calls with a tz (`datetime.now(timezone.utc)`, `datetime.now(tz=...)`, `.astimezone()`, `.replace(tzinfo=...)`) are never reported.
+
+**Project awareness.** The project counts as timezone-aware when Django settings have `USE_TZ = True` (`DJANGO_SETTINGS_MODULE` from `pyproject.toml` / `pytest.ini` / `setup.cfg` / `tox.ini` / `manage.py`, else any `settings*.py` or `settings/` package file), or non-test sources use `django.utils.timezone` `now` / `localdate`. The scan is bounded (skips `.venv`, `venv`, `node_modules`, `.git`, `site-packages`, `tests`, `migrations`; max 5000 files) and runs once per run. In such a project the finding is a `warning` (`project uses timezone-aware dates (timezone.localdate()); naive datetime.now() diverges near midnight in non-UTC local time ...`) and is reported only when the value reaches a model/factory field, an assert, or another call's argument. It is not reported when the value is unused, sits in a `pytest.raises` body, or is passed to a call in a negative-path test (name/asserts such as `missing`, `error`, `is None`). Other projects keep the `note` for every naive read.
 
 Hit:
 
@@ -581,21 +588,29 @@ def test_ok():
 ## near-duplicate-test
 
 **Severity:** note  
-**When:** two or more tests in the same file share the same body after normalizing string/number literals, **and** they share polarity, SUT call, and significant assert literals (enums / HTTP statuses). Opposite accept/reject pairs, different SUT calls, and different enum expectations are not flagged. Clusters of 3+ emit one finding with a `@pytest.mark.parametrize` sketch.
+**When:** a parametrize candidate: two tests with the same body after normalizing literals that differ **only in input literals** (call args, setup). Assertions must be identical, including right-hand literals, status/enum attributes and `pytest.raises(E, match=...)` arguments; decorator lists must match; names must not be antonyms (`passes`/`dropped`, `demotes`/`retries`, `valid`/`invalid`, `with`/`without`, `is_null`/`is_not_null`, …). Tests must be adjacent in the same scope (at most one test in between), small (up to 15 lines), and must not carry two different docstrings (documented distinct scenarios). Clusters of 3+ emit one finding on the first test; pairs report on the later one ("same body and assertions as test_x:N, differing only in input literals — candidate for `@pytest.mark.parametrize`").
 
 Hit:
 
 ```python
-def test_a():
-    x = 1
-    assert x == 1
+def test_unknown_user_returns_404(client):
+    resp = client.get("/users/999")
+    assert resp.status_code == 404
 
-def test_b():
-    x = 2
-    assert x == 2
+def test_unknown_order_returns_404(client):
+    resp = client.get("/orders/123")
+    assert resp.status_code == 404
 ```
 
 Clean:
+
+```python
+def test_plan_free_limit():
+    assert limit_for("free") == 10
+
+def test_plan_pro_limit():
+    assert limit_for("pro") == 100   # different expected value
+```
 
 ```python
 def test_accepts_item():
@@ -618,7 +633,8 @@ def test_default_chain():
 ## name-body-mismatch
 
 **Severity:** note  
-**When:** the test name implies a negative/error case (`rejects_*`, `*_404`, `fails_*`, …) but the body has no matching negative signal (`pytest.raises`, 4xx/5xx assert, `assert not`, …).
+**Opt-in:** off by default (0/52 precision on the labeled mp-be corpus); enable with `--enable name-body-mismatch`.  
+**When:** the test name implies a negative/error case (`rejects_invalid_*`, `*_404`, `fails_*`, `returns_error`, …) but the body has no matching negative signal (`pytest.raises`, 4xx/5xx assert, `assert not`, …). Domain-style failure checks also count as a signal: comparisons against `FAILED`/`ERROR`/`REJECTED`/`SKIPPED`/… members or strings, `error_code`/`.code` checks, non-empty `errors`/`issues`, `failed` counters, `assert_not_called()`, `not x.is_valid()`, try/except/else-fail. Negated or resilience names (`does_not_fail`, `never_raises`, `fails_open`, `fallback`, `survives`, `*_when_x_fails`) and domain verbs (`bulk_reject`) are not failure claims.
 
 Hit:
 
@@ -692,7 +708,7 @@ def test_determinism():
 ## commented-assert
 
 **Severity:** note  
-**When:** a line is a commented-out `assert` / `self.assert*` (`# assert …`).
+**When:** a comment is a commented-out `assert …` statement or a `self.assert*(…)` / `assert_*(…)` call. The comment text must look like code (balanced quotes/brackets, no adjacent bare words), so prose such as `# Assert on_commit ran before GET.` or `# assert that the cache is warm.` does not fire.
 
 Hit:
 
@@ -716,7 +732,7 @@ def test_ok():
 ## overbroad-equality
 
 **Severity:** note  
-**When:** an assert compares against a huge dict/list/tuple literal (long text or many commas). Skips API-contract compares where one side is `response.data` / `resp.data` / a `*.json()`-like response body. Often a valid snapshot otherwise; review whether focused field checks would be clearer.
+**When:** an assert compares against a huge dict/list/tuple literal (long text or many commas). Skips API-contract compares whose root is `response.data` / `resp.data` / `r.data` / `*.json()` (including subscripts on top), `.values()` / `.values_list()` results, `error_details`, and sets/lists of identifier-like string literals (permission or error-code sets). Often a valid snapshot otherwise; review whether focused field checks would be clearer.
 
 Hit:
 

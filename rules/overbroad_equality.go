@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/Nikita527/testscan/scan"
@@ -40,6 +41,11 @@ func (overbroadEquality) Check(file scan.File) []scan.Finding {
 			if isResponseBodySide(a.Left) || isResponseBodySide(a.Right) {
 				continue
 			}
+			// Exact equality on identifier/code string collections (permission sets,
+			// error codes) is an intentional contract check.
+			if isCodeStringCollection(a.Left) || isCodeStringCollection(a.Right) {
+				continue
+			}
 			seen[a.Lineno] = struct{}{}
 			findings = append(findings, scan.Finding{
 				File:     file.Path,
@@ -73,28 +79,85 @@ func isOverbroadLiteral(side string) bool {
 	return countCommasOutsideStrings(s) >= overbroadLiteralMinCommas
 }
 
-// isResponseBodySide is true for response/resp .data / .json() API body attributes.
+// isResponseBodySide is true when the side's root expression is an API response
+// body: <response|resp|res|r>.data[...]..., anything ending in .json() followed by
+// any subscripts/attributes, and ORM .values()/.values_list() / error_details results.
 func isResponseBodySide(side string) bool {
 	s := strings.TrimSpace(strings.ToLower(side))
 	if s == "" {
 		return false
 	}
-	if strings.HasSuffix(s, ".json()") {
-		return true
-	}
-	switch s {
-	case "response.data", "resp.data":
-		return true
-	}
-	if strings.HasSuffix(s, ".data") {
-		base := strings.TrimSuffix(s, ".data")
-		leaf := base
-		if i := strings.LastIndex(base, "."); i >= 0 {
-			leaf = base[i+1:]
+	for _, tok := range []string{".json()", ".values(", ".values_list(", "error_details"} {
+		if strings.Contains(s, tok) {
+			return true
 		}
-		return leaf == "response" || leaf == "resp"
+	}
+	for _, root := range []string{"response", "resp", "res", "r"} {
+		if strings.HasPrefix(s, root+".data") {
+			rest := s[len(root+".data"):]
+			if rest == "" || rest[0] == '[' || rest[0] == '.' || rest[0] == ' ' {
+				return true
+			}
+		}
+	}
+	// Dotted base such as self.response.data / client_response.data.
+	if i := strings.Index(s, ".data"); i > 0 {
+		base := s[:i]
+		leaf := base[strings.LastIndex(base, ".")+1:]
+		if leaf == "response" || leaf == "resp" || strings.HasSuffix(leaf, "_response") {
+			return true
+		}
 	}
 	return false
+}
+
+var reCodeString = regexp.MustCompile(`^(?:"[A-Za-z0-9_.:\-]+"|'[A-Za-z0-9_.:\-]+')$`)
+
+// isCodeStringCollection is true for a set/list/tuple literal made only of
+// identifier-like string literals (permission names, error codes).
+func isCodeStringCollection(side string) bool {
+	s := strings.TrimSpace(side)
+	if len(s) < 2 || (s[0] != '{' && s[0] != '[' && s[0] != '(') {
+		return false
+	}
+	inner := strings.TrimSpace(s[1 : len(s)-1])
+	if inner == "" {
+		return false
+	}
+	var parts []string
+	var quote byte
+	start := 0
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		if quote != 0 {
+			switch c {
+			case 0x5c:
+				i++
+			case quote:
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', 0x27:
+			quote = c
+		case ',':
+			parts = append(parts, strings.TrimSpace(inner[start:i]))
+			start = i + 1
+		}
+	}
+	parts = append(parts, strings.TrimSpace(inner[start:]))
+	n := 0
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if !reCodeString.MatchString(p) {
+			return false
+		}
+		n++
+	}
+	return n > 0
 }
 
 func countCommasOutsideStrings(s string) int {

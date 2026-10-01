@@ -105,10 +105,16 @@ func (o onlyHappyPath) fromAST(file scan.File, model parse.Model) []scan.Finding
 	neg := o.negNames()
 	minT := o.min()
 
+	sctx := NewSUTContext(file, model)
 	groups := map[string][]parse.TestFunc{}
 	order := make([]string, 0)
 	for _, t := range model.Tests {
-		sut := primarySUTCall(t)
+		sut := primarySUT(t, sctx.Calls(t))
+		if sut == "" {
+			// No call into project code (only helpers / stdlib / data): nothing
+			// to attribute an unhappy path to.
+			continue
+		}
 		if _, ok := groups[sut]; !ok {
 			order = append(order, sut)
 		}
@@ -125,15 +131,12 @@ func (o onlyHappyPath) fromAST(file scan.File, model parse.Model) []scan.Finding
 			continue
 		}
 		// Pure mappers / enum helpers without branches: skip (no real unhappy path).
-		if sut != "" && !sutLooksBranchy(file.Path, sut, model.Imports, src) {
+		if !sutLooksBranchy(file.Path, sut, model.Imports, src) {
 			continue
 		}
 		line := tests[0].Lineno
 		qual := qualName(tests[0])
-		msg := fmt.Sprintf("more than %d tests without negative-path signals", minT)
-		if sut != "" {
-			msg = fmt.Sprintf("SUT %s: more than %d tests without negative-path signals", sut, minT)
-		}
+		msg := fmt.Sprintf("SUT %s: more than %d tests without negative-path signals", sut, minT)
 		findings = append(findings, scan.Finding{
 			File:     file.Path,
 			Line:     line,
@@ -146,6 +149,32 @@ func (o onlyHappyPath) fromAST(file scan.File, model parse.Model) []scan.Finding
 	return findings
 }
 
+// primarySUT picks the test's subject: the last SUT call before the first
+// assert (else the last SUT call). calls come from SUTContext.Calls, so only
+// project code qualifies. Returns the resolved name, "" when there is none.
+func primarySUT(t parse.TestFunc, calls []SUTCall) string {
+	assertLine := 0
+	for _, a := range t.Asserts {
+		if assertLine == 0 || (a.Lineno > 0 && a.Lineno < assertLine) {
+			assertLine = a.Lineno
+		}
+	}
+	var lastBefore, lastAny string
+	for _, c := range calls {
+		lastAny = c.Resolved
+		if assertLine == 0 || c.Lineno < assertLine {
+			lastBefore = c.Resolved
+		}
+	}
+	if lastBefore != "" {
+		return lastBefore
+	}
+	return lastAny
+}
+
+// primarySUTCall is the legacy, project-agnostic subject guess (last
+// non-framework call before the first assert). Kept for rules that do not
+// have a SUTContext (near-duplicate-test); only-happy-path uses primarySUT.
 func primarySUTCall(t parse.TestFunc) string {
 	assertLine := 0
 	for _, a := range t.Asserts {
@@ -395,7 +424,21 @@ func sutLooksBranchy(testPath, sut string, imports []parse.Import, testSrc strin
 		// Module-level / class method not found — assume branchy.
 		return true
 	}
+	if pureScalarFunc(fnSrc) {
+		return false
+	}
 	return pythonFuncLooksBranchy(fnSrc)
+}
+
+var (
+	reScalarReturn = regexp.MustCompile(`\)\s*->\s*(str|int|float|bool|bytes)\s*:`)
+	reRaiseStmt    = regexp.MustCompile(`(?m)^\s*raise\b`)
+)
+
+// pureScalarFunc: annotated to return a bare scalar and never raises, so it has
+// no error contract to test (input->output mapper such as a quoting helper).
+func pureScalarFunc(fnSrc string) bool {
+	return reScalarReturn.MatchString(fnSrc) && !reRaiseStmt.MatchString(fnSrc)
 }
 
 func resolveImportedModule(testPath, sut string, imports []parse.Import) string {

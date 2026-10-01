@@ -68,6 +68,9 @@ type Model struct {
 	Tests   []TestFunc `json:"tests"`
 	Imports []Import   `json:"imports"`
 	Helpers []Helper   `json:"helpers"`
+	// ModuleDefs are names defined at module level in the file (defs, classes,
+	// assignments). Calls rooted in them are test-local, not project SUT.
+	ModuleDefs []string `json:"module_defs,omitempty"`
 }
 
 // Helper is a non-test function that may contain asserts (for no-assert follow).
@@ -84,6 +87,19 @@ type Import struct {
 	Names  []string `json:"names"`  // imported names or dotted module paths
 	Level  int      `json:"level"`  // ImportFrom relative level (0 = absolute)
 	Lineno int      `json:"lineno"`
+	// Bindings are the local names created by the statement (alias-aware).
+	Bindings []ImportBinding `json:"bindings,omitempty"`
+}
+
+// ImportBinding is one local name introduced by an import statement.
+// `from a.b import c as d` -> {Local:d, Module:a.b, Name:c};
+// `import a.b` -> {Local:a, Module:a.b}; `import a.b as c` -> {Local:c, Module:a.b}.
+type ImportBinding struct {
+	Local  string `json:"local"`
+	Module string `json:"module"`
+	Name   string `json:"name"`
+	// Stdlib is true for absolute imports of a stdlib module (sys.stdlib_module_names).
+	Stdlib bool `json:"stdlib"`
 }
 
 // TestFunc describes one test_* / Test* function.
@@ -101,10 +117,13 @@ type TestFunc struct {
 	TryExcept   []TryExcept  `json:"try_except"`
 	Assignments []Assignment `json:"assignments"`
 	ForLoops    []ForLoop    `json:"for_loops"`
-	BodyNorm    string       `json:"body_norm"`
-	IsEmpty     bool         `json:"is_empty"`
-	HasAssert   bool         `json:"has_assert"`
-	HasRaises   bool         `json:"has_raises"`
+	// VarOrigins maps a local name to the callee it was first assigned from,
+	// "<literal>" for literal values or "<other>".
+	VarOrigins map[string]string `json:"var_origins,omitempty"`
+	BodyNorm   string            `json:"body_norm"`
+	IsEmpty    bool              `json:"is_empty"`
+	HasAssert  bool              `json:"has_assert"`
+	HasRaises  bool              `json:"has_raises"`
 }
 
 // Assert kinds: compare | isinstance | truthy | mock_method | tuple | unittest_bool | other
@@ -123,6 +142,17 @@ type Call struct {
 	Lineno int    `json:"lineno"`
 	// Bare is true when the call is a statement expression (result unused).
 	Bare bool `json:"bare"`
+	// RecvLiteral: receiver is a literal (`"x".join`, `[].append`).
+	RecvLiteral bool `json:"recv_literal,omitempty"`
+	// ArgOfCall: the call's value is an argument of an enclosing call.
+	ArgOfCall bool `json:"arg_of_call,omitempty"`
+	// Wall-clock facts (only for now/today/utcnow calls): argument count,
+	// where the value flows ("assert"|"model_arg"|"call_arg"), `.astimezone()`-style
+	// awareness and whether it sits in a pytest.raises body.
+	Argc       int      `json:"argc,omitempty"`
+	Flow       []string `json:"flow,omitempty"`
+	AwareChain bool     `json:"aware_chain,omitempty"`
+	InRaises   bool     `json:"in_raises,omitempty"`
 }
 
 type Raise struct {

@@ -307,6 +307,221 @@ def _classify_assert(test: ast.expr) -> dict[str, Any]:
     return info
 
 
+# --- SUT / project-awareness facts (consumed by rules/sut.go, rules/sleep.go) ---
+
+_WALL_LEAVES = ("now", "today", "utcnow")
+_MODEL_CALL_LEAVES = (
+    "create",
+    "bulk_create",
+    "get_or_create",
+    "update_or_create",
+    "save",
+    "update",
+    "filter",
+    "get",
+    "exclude",
+)
+_LITERAL_NODES = (
+    ast.Constant,
+    ast.JoinedStr,
+    ast.List,
+    ast.Tuple,
+    ast.Dict,
+    ast.Set,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+_STDLIB_FALLBACK = frozenset(
+    "abc argparse array ast asyncio base64 binascii bisect builtins calendar collections "
+    "contextlib copy csv dataclasses datetime decimal enum functools gc glob hashlib heapq "
+    "hmac html http importlib inspect io itertools json logging math multiprocessing "
+    "operator os pathlib pickle platform pprint queue random re secrets shlex shutil signal "
+    "socket sqlite3 ssl statistics string struct subprocess sys tempfile textwrap threading "
+    "time traceback types typing unittest urllib uuid warnings weakref xml zipfile zlib "
+    "__future__".split()
+)
+
+
+def _stdlib_names() -> frozenset[str]:
+    names = getattr(sys, "stdlib_module_names", None)
+    return frozenset(names) if names else _STDLIB_FALLBACK
+
+
+def _build_parents(root: ast.AST) -> dict[int, ast.AST]:
+    parents: dict[int, ast.AST] = {}
+    for node in ast.walk(root):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+    return parents
+
+
+def _recv_is_literal(call: ast.Call) -> bool:
+    """`"x".join(...)`, `[].append(...)`: the receiver is a literal of a builtin type."""
+    func = call.func
+    return isinstance(func, ast.Attribute) and isinstance(func.value, _LITERAL_NODES)
+
+
+def _is_arg_of_call(node: ast.AST, parents: dict[int, ast.AST]) -> bool:
+    """True when node's value is consumed as an argument of an enclosing call.
+
+    Walking up through expression parents (dict/tuple/list/keyword...): reaching a Call
+    as one of its args/keywords -> True; reaching it via `.func` (node is the receiver
+    or callee chain) or a statement -> False.
+    """
+    cur = node
+    while True:
+        parent = parents.get(id(cur))
+        if parent is None or isinstance(parent, ast.stmt):
+            return False
+        if isinstance(parent, ast.Call):
+            return cur is not parent.func
+        cur = parent
+
+
+def _in_raises_block(node: ast.AST, parents: dict[int, ast.AST]) -> bool:
+    cur = node
+    while True:
+        parent = parents.get(id(cur))
+        if parent is None:
+            return False
+        if isinstance(parent, (ast.With, ast.AsyncWith)) and cur in parent.body:
+            for item in parent.items:
+                ctx = item.context_expr
+                if isinstance(ctx, ast.Call) and _is_raises_call(_call_name(ctx.func)):
+                    return True
+        cur = parent
+
+
+def _value_origin(value: ast.AST | None) -> str:
+    """Coarse origin of a local variable: callee name, `<literal>` or `<other>`."""
+    if value is None:
+        return "<other>"
+    if isinstance(value, ast.Await):
+        value = value.value
+    if isinstance(value, _LITERAL_NODES):
+        return "<literal>"
+    if isinstance(value, ast.Call):
+        return _call_name(value.func) or "<other>"
+    if isinstance(value, (ast.Name, ast.Attribute)):
+        return _call_name(value) or "<other>"
+    return "<other>"
+
+
+def _var_origins(fn: ast.AST, nested_ids: set[int]) -> dict[str, str]:
+    """name -> origin for simple `name = expr` / `with expr as name` (first binding wins)."""
+    origins: dict[str, str] = {}
+    for node in ast.walk(fn):
+        if id(node) in nested_ids:
+            continue
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    origins.setdefault(tgt.id, _value_origin(node.value))
+                elif isinstance(tgt, (ast.Tuple, ast.List)):
+                    for elt in tgt.elts:
+                        if isinstance(elt, ast.Name):
+                            origins.setdefault(elt.id, "<other>")
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            origins.setdefault(node.target.id, _value_origin(node.value))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if isinstance(item.optional_vars, ast.Name):
+                    origins.setdefault(item.optional_vars.id, _value_origin(item.context_expr))
+    return origins
+
+
+def _wall_call_facts(
+    call: ast.Call,
+    fn: ast.AST,
+    parents: dict[int, ast.AST],
+    nested_ids: set[int],
+) -> dict[str, Any]:
+    """Flow facts for datetime.now()/date.today()/utcnow(): where the value goes.
+
+    flow: subset of {"assert", "model_arg", "call_arg"} (see _walk_flow).
+    aware_chain: `.astimezone(...)` / `.replace(tzinfo=...)` applied directly.
+    in_raises: the call sits inside a `with pytest.raises(...)` body.
+    """
+    facts: dict[str, Any] = {
+        "argc": len(call.args) + len(call.keywords),
+        "flow": [],
+        "aware_chain": False,
+        "in_raises": _in_raises_block(call, parents),
+    }
+    parent = parents.get(id(call))
+    if isinstance(parent, ast.Attribute):
+        grand = parents.get(id(parent))
+        if isinstance(grand, ast.Call) and grand.func is parent:
+            if parent.attr == "astimezone":
+                facts["aware_chain"] = True
+            elif parent.attr == "replace" and any(k.arg == "tzinfo" for k in grand.keywords):
+                facts["aware_chain"] = True
+    out: set[str] = set()
+    if not facts["in_raises"]:
+        loads: dict[str, list[ast.Name]] = {}
+        for n in ast.walk(fn):
+            if id(n) in nested_ids:
+                continue
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
+                loads.setdefault(n.id, []).append(n)
+        _walk_flow(call, parents, loads, out, set(), 0)
+    facts["flow"] = sorted(out)
+    return facts
+
+
+def _walk_flow(
+    node: ast.AST,
+    parents: dict[int, ast.AST],
+    loads: dict[str, list[ast.Name]],
+    out: set[str],
+    seen: set[str],
+    depth: int,
+) -> None:
+    """Follow a value up through expressions; follow `name = value` to the name's uses."""
+    cur = node
+    while True:
+        parent = parents.get(id(cur))
+        if parent is None:
+            return
+        if isinstance(parent, ast.Call) and cur is not parent.func:
+            cname = _call_name(parent.func)
+            leaf = cname.rsplit(".", 1)[-1]
+            if leaf.startswith("assert") or _is_mock_assert_name(cname):
+                out.add("assert")
+            elif leaf in _MODEL_CALL_LEAVES or leaf[:1].isupper():
+                out.add("model_arg")
+            else:
+                out.add("call_arg")
+            # The value is consumed by the call; what the call returns is not
+            # the wall-clock value any more, so stop following it.
+            return
+        elif isinstance(parent, ast.Assert):
+            out.add("assert")
+            return
+        elif isinstance(parent, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+            if getattr(parent, "value", None) is not cur:
+                return
+            if isinstance(parent, ast.Assign):
+                targets = list(parent.targets)
+            else:
+                targets = [parent.target]
+            for tgt in targets:
+                if isinstance(tgt, ast.Name):
+                    if depth < 3 and tgt.id not in seen:
+                        seen.add(tgt.id)
+                        for use in loads.get(tgt.id, []):
+                            if not _in_raises_block(use, parents):
+                                _walk_flow(use, parents, loads, out, seen, depth + 1)
+                elif isinstance(tgt, (ast.Attribute, ast.Subscript)):
+                    out.add("model_arg")
+            return
+        elif isinstance(parent, ast.stmt):
+            return
+        cur = parent
+
+
 def _collect_from_function(
     fn: ast.FunctionDef | ast.AsyncFunctionDef,
     class_name: str,
@@ -336,6 +551,7 @@ def _collect_from_function(
             for child in ast.walk(node):
                 nested_node_ids.add(id(child))
 
+    parents = _build_parents(fn)
     bare_call_ids: set[int] = set()
     for node in ast.walk(fn):
         if id(node) in nested_node_ids:
@@ -387,13 +603,18 @@ def _collect_from_function(
         if isinstance(node, ast.Call):
             cname = _call_name(node.func)
             if cname:
-                calls.append(
-                    {
-                        "name": cname,
-                        "lineno": node.lineno,
-                        "bare": id(node) in bare_call_ids,
-                    }
-                )
+                entry: dict[str, Any] = {
+                    "name": cname,
+                    "lineno": node.lineno,
+                    "bare": id(node) in bare_call_ids,
+                }
+                if _recv_is_literal(node):
+                    entry["recv_literal"] = True
+                if _is_arg_of_call(node, parents):
+                    entry["arg_of_call"] = True
+                if cname.rsplit(".", 1)[-1] in _WALL_LEAVES:
+                    entry.update(_wall_call_facts(node, fn, parents, nested_node_ids))
+                calls.append(entry)
 
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             value_node = node.value if isinstance(node, ast.Assign) else node.value
@@ -497,6 +718,7 @@ def _collect_from_function(
         "try_except": try_except,
         "assignments": assignments,
         "for_loops": for_loops,
+        "var_origins": _var_origins(fn, nested_node_ids),
         "body_norm": _body_norm(fn.body),
         "is_empty": _body_is_empty(fn.body),
         "has_assert": has_assert,
@@ -578,11 +800,28 @@ def collect_helpers(tree: ast.AST) -> list[dict[str, Any]]:
 
 
 def collect_imports(tree: ast.AST) -> list[dict[str, Any]]:
-    """All Import / ImportFrom nodes in the module (including nested)."""
+    """All Import / ImportFrom nodes in the module (including nested).
+
+    `bindings` lists the local names each statement creates (alias-aware) with the
+    absolute module they come from and whether that module is stdlib.
+    """
+    stdlib = _stdlib_names()
     imports: list[dict[str, Any]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names if alias.name]
+            bindings = []
+            for alias in node.names:
+                if not alias.name:
+                    continue
+                bindings.append(
+                    {
+                        "local": alias.asname or alias.name.split(".", 1)[0],
+                        "module": alias.name,
+                        "name": "",
+                        "stdlib": alias.name.split(".", 1)[0] in stdlib,
+                    }
+                )
             imports.append(
                 {
                     "kind": "import",
@@ -590,20 +829,73 @@ def collect_imports(tree: ast.AST) -> list[dict[str, Any]]:
                     "names": names,
                     "level": 0,
                     "lineno": node.lineno,
+                    "bindings": bindings,
                 }
             )
         elif isinstance(node, ast.ImportFrom):
             names = [alias.name for alias in node.names if alias.name and alias.name != "*"]
+            level = int(getattr(node, "level", 0) or 0)
+            mod = node.module or ""
+            bindings = []
+            for alias in node.names:
+                if not alias.name or alias.name == "*":
+                    continue
+                bindings.append(
+                    {
+                        "local": alias.asname or alias.name,
+                        "module": mod,
+                        "name": alias.name,
+                        "stdlib": level == 0 and mod.split(".", 1)[0] in stdlib,
+                    }
+                )
             imports.append(
                 {
                     "kind": "from",
-                    "module": node.module or "",
+                    "module": mod,
                     "names": names,
-                    "level": int(getattr(node, "level", 0) or 0),
+                    "level": level,
                     "lineno": node.lineno,
+                    "bindings": bindings,
                 }
             )
     return imports
+
+
+def collect_module_defs(tree: ast.AST) -> list[str]:
+    """Names defined at module level in this file (defs, classes, assignments).
+
+    A call rooted in one of these is test-local, never project code under test.
+    """
+    names: list[str] = []
+
+    def add_target(tgt: ast.AST) -> None:
+        if isinstance(tgt, ast.Name):
+            names.append(tgt.id)
+        elif isinstance(tgt, (ast.Tuple, ast.List)):
+            for elt in tgt.elts:
+                add_target(elt)
+
+    def visit(body: list[ast.stmt]) -> None:
+        for stmt in body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.append(stmt.name)
+            elif isinstance(stmt, ast.Assign):
+                for tgt in stmt.targets:
+                    add_target(tgt)
+            elif isinstance(stmt, ast.AnnAssign):
+                add_target(stmt.target)
+            elif isinstance(stmt, ast.If):
+                visit(stmt.body)
+                visit(stmt.orelse)
+            elif isinstance(stmt, ast.Try):
+                visit(stmt.body)
+                for h in stmt.handlers:
+                    visit(h.body)
+                visit(stmt.orelse)
+
+    if isinstance(tree, ast.Module):
+        visit(tree.body)
+    return sorted(set(names))
 
 
 def model_for_source(src: str | bytes, filename: str = "<unknown>") -> dict[str, Any]:
@@ -616,6 +908,7 @@ def model_for_source(src: str | bytes, filename: str = "<unknown>") -> dict[str,
         "tests": collect_tests(tree),
         "imports": collect_imports(tree),
         "helpers": collect_helpers(tree),
+        "module_defs": collect_module_defs(tree),
     }
 
 

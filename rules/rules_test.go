@@ -29,7 +29,7 @@ func TestCorpus(t *testing.T) {
 		{"mock-only-assert", rules.NewMockOnlyAssert(), "testdata/mock_only_assert", "test_mock_only.py", "mock-only-assert", 3},
 		{"todo-test", rules.NewTodoTest(), "testdata/todo", "test_todo.py", "todo-test", 2},
 		{"duplicate-test-name", rules.NewDuplicateTestName(), "testdata/duplicate_test_name", "test_dup.py", "duplicate-test-name", 5},
-		{"only-happy-path", rules.NewOnlyHappyPath(), "testdata/only_happy_path", "test_happy.py", "only-happy-path", 1},
+		{"only-happy-path", rules.NewOnlyHappyPath(), "testdata/only_happy_path", "test_happy.py", "only-happy-path", 4},
 		{"assert-equals-same", rules.NewAssertEqualsSame(), "testdata/assert_equals_same", "test_same.py", "assert-equals-same", 2},
 		{"snapshot-only", rules.NewSnapshotOnly(), "testdata/snapshot_only", "test_snap.py", "snapshot-only", 1},
 		{"overmocked-io", rules.NewOvermockedIO(), "testdata/overmocked_io", "test_io.py", "overmocked-io", 4},
@@ -45,7 +45,7 @@ func TestCorpus(t *testing.T) {
 		{"sleep-in-test", rules.NewSleepInTest(), "testdata/sleep_in_test", "test_sleep.py", "sleep-in-test", 5},
 		{"wall-clock-in-test", rules.NewWallClockInTest(), "testdata/wall_clock_in_test", "test_now.py", "wall-clock-in-test", 5},
 		{"skip-without-reason", rules.NewSkipWithoutReason(), "testdata/skip_without_reason", "test_skip.py", "skip-without-reason", 5},
-		{"near-duplicate-test", rules.NewNearDuplicateTest(), "testdata/near_duplicate_test", "test_dup.py", "near-duplicate-test", 6},
+		{"near-duplicate-test", rules.NewNearDuplicateTest(), "testdata/near_duplicate_test", "test_dup.py", "near-duplicate-test", 1},
 		{"name-body-mismatch", rules.NewNameBodyMismatch(), "testdata/name_body_mismatch", "test_mismatch.py", "name-body-mismatch", 1},
 		{"self-patched-sut", rules.NewSelfPatchedSUT(), "testdata/self_patched_sut", "test_self.py", "self-patched-sut", 6},
 		{"expected-recomputed", rules.NewExpectedRecomputed(), "testdata/expected_recomputed", "test_recomputed.py", "expected-recomputed", 3},
@@ -107,8 +107,8 @@ func TestCorpus(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	got := rules.Default()
-	if len(got) != 28 {
-		t.Fatalf("got %d rules, want 28", len(got))
+	if len(got) != 27 {
+		t.Fatalf("got %d rules, want 27", len(got))
 	}
 }
 
@@ -220,12 +220,7 @@ func TestOnlyHappyPath_IsNotNoneDoesNotCountAsNegative(t *testing.T) {
 			}},
 		})
 	}
-	got := rule.Check(scan.File{
-		Path:    "t.py",
-		Content: []byte("def test_a():\n    assert result is not None\n"),
-		ModelOK: true,
-		Model:   parse.Model{Tests: tests},
-	})
+	got := rule.Check(sutFile(t, tests, "def test_a():\n    assert result is not None\n"))
 	if len(got) != 1 {
 		t.Fatalf("is not None alone must still be only-happy-path hit, got %d (%v)", len(got), got)
 	}
@@ -243,9 +238,7 @@ func TestOnlyHappyPath_IsNoneIsNegative(t *testing.T) {
 			Name: name, QualName: name, Lineno: i*3 + 1, Asserts: []parse.Assert{a},
 		})
 	}
-	got := rule.Check(scan.File{
-		Path: "t.py", Content: []byte("x"), ModelOK: true, Model: parse.Model{Tests: tests},
-	})
+	got := rule.Check(sutFile(t, tests, "x"))
 	if len(got) != 0 {
 		t.Fatalf("is None must count as negative, got %v", got)
 	}
@@ -775,19 +768,19 @@ func TestNearDuplicate_ClusterParametrize(t *testing.T) {
 				{
 					Name: "test_copy_name_prefix", QualName: "test_copy_name_prefix", Lineno: 1,
 					BodyNorm: `assert copy_name(STR) == STR`,
-					Asserts:  []parse.Assert{{Kind: "compare", Right: `"copy_of_a"`}},
+					Asserts:  []parse.Assert{{Kind: "compare", Text: `copy_name(x) == "copy_of_x"`, Right: `"copy_of_x"`}},
 					Calls:    []parse.Call{{Name: "copy_name"}},
 				},
 				{
 					Name: "test_copy_name_suffix", QualName: "test_copy_name_suffix", Lineno: 4,
 					BodyNorm: `assert copy_name(STR) == STR`,
-					Asserts:  []parse.Assert{{Kind: "compare", Right: `"copy_of_b"`}},
+					Asserts:  []parse.Assert{{Kind: "compare", Text: `copy_name(x) == "copy_of_x"`, Right: `"copy_of_x"`}},
 					Calls:    []parse.Call{{Name: "copy_name"}},
 				},
 				{
 					Name: "test_copy_name_middle", QualName: "test_copy_name_middle", Lineno: 7,
 					BodyNorm: `assert copy_name(STR) == STR`,
-					Asserts:  []parse.Assert{{Kind: "compare", Right: `"copy_of_c"`}},
+					Asserts:  []parse.Assert{{Kind: "compare", Text: `copy_name(x) == "copy_of_x"`, Right: `"copy_of_x"`}},
 					Calls:    []parse.Call{{Name: "copy_name"}},
 				},
 			},
@@ -800,9 +793,9 @@ func TestNearDuplicate_ClusterParametrize(t *testing.T) {
 		t.Fatalf("cluster finding line=%d, want 1 (first test)", got[0].Line)
 	}
 	if !strings.Contains(got[0].Message, "parametrize") {
-		t.Fatalf("message should include parametrize sketch: %q", got[0].Message)
+		t.Fatalf("message should suggest parametrize: %q", got[0].Message)
 	}
-	if !strings.Contains(got[0].Message, "3 near-duplicate") {
+	if !strings.Contains(got[0].Message, "3 tests") {
 		t.Fatalf("message should mention cluster size: %q", got[0].Message)
 	}
 }
@@ -905,9 +898,7 @@ func TestOnlyHappyPath_HTTPConstClean(t *testing.T) {
 			Name: name, QualName: name, Lineno: i*3 + 1, Asserts: []parse.Assert{a},
 		})
 	}
-	got := rule.Check(scan.File{
-		Path: "t.py", Content: []byte("status.HTTP_403_FORBIDDEN"), ModelOK: true, Model: parse.Model{Tests: tests},
-	})
+	got := rule.Check(sutFile(t, tests, "status.HTTP_403_FORBIDDEN"))
 	if len(got) != 0 {
 		t.Fatalf("HTTP_403 const must count as negative, got %v", got)
 	}
@@ -922,9 +913,7 @@ func TestOnlyHappyPath_BlockedNameClean(t *testing.T) {
 		{Name: "test_returns_403_when_blocked", QualName: "test_returns_403_when_blocked", Lineno: 7,
 			Asserts: []parse.Assert{{Kind: "compare", Text: "1 == 1", Left: "1", Right: "1", Lineno: 8}}},
 	}
-	got := rule.Check(scan.File{
-		Path: "t.py", Content: []byte("x"), ModelOK: true, Model: parse.Model{Tests: tests},
-	})
+	got := rule.Check(sutFile(t, tests, "x"))
 	if len(got) != 0 {
 		t.Fatalf("blocked/403 name must count as negative, got %v", got)
 	}

@@ -1,14 +1,17 @@
+from happy_app.service import process
+
+
 def test_a():
-    assert 1 == 1
+    assert process(1) == 1
 
 
 def test_b():
-    assert 2 == 2
+    assert process(2) == 2
 
 
 def test_c():
-    assert 3 == 3
+    assert process(3) == 3
 
 
 def test_d():
-    assert 4 == 4
+    assert process(4) == 4
