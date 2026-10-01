@@ -2,7 +2,7 @@ package scan_test
 
 import (
 	"math"
-	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Nikita527/testscan/scan"
@@ -26,10 +26,10 @@ func TestCalculateScore_GradeThresholds(t *testing.T) {
 		{100, "A"}, {90, "A"}, {89, "B"}, {75, "B"}, {74, "C"},
 		{60, "C"}, {59, "D"}, {45, "D"}, {44, "F"}, {0, "F"},
 	} {
-		line := scan.FormatScoreLine(scan.Score{Value: tc.v, Grade: tc.g, ShowGrade: true})
-		want := "Confirmed: 0 (density 0.00)\nHealth Score: " + strconv.Itoa(tc.v) + " (" + tc.g + ") [deprecated]"
-		if line != want {
-			t.Errorf("got %q want %q", line, want)
+		// Grade is JSON-only: the text header must never carry it.
+		line := scan.FormatScoreLine(scan.Score{Value: tc.v, Grade: tc.g})
+		if strings.Contains(line, "Health") || strings.Contains(line, "grade") {
+			t.Errorf("text header leaks grade: %q", line)
 		}
 	}
 	clean := scan.CalculateScore(nil, 1)
@@ -105,6 +105,7 @@ func TestCalculateScore_BroadRaisesPrecision(t *testing.T) {
 }
 
 func TestPrecisionWeight(t *testing.T) {
+	withOverrides(t, map[string]float64{"no-assert": 0, "broad-raises": 1, "only-happy-path": 0.5, "name-body-mismatch": 0.35})
 	if w := scan.PrecisionWeight("no-assert"); w != 0 {
 		t.Fatalf("no-assert weight=%v, want 0", w)
 	}
@@ -126,6 +127,7 @@ func TestPrecisionWeight(t *testing.T) {
 }
 
 func TestCalculateScore_MidPrecisionWarningsCount(t *testing.T) {
+	withOverrides(t, map[string]float64{"no-assert": 0, "broad-raises": 1, "only-happy-path": 0.5, "name-body-mismatch": 0.35})
 	// name-body-mismatch precision 0.35 ≥ floor → volume must lower score (not fake-A).
 	findings := make([]scan.Finding, 120)
 	for i := range findings {
@@ -176,57 +178,127 @@ func TestCalculateScore_ParsePenalty(t *testing.T) {
 }
 
 func TestFormatScoreLine(t *testing.T) {
-	got := scan.FormatScoreLine(scan.Score{ConfirmedCount: 5, ConfirmedDensity: 2.5})
-	if got != "Confirmed: 5 (density 2.50)" {
-		t.Fatalf("got %q", got)
+	got := scan.FormatScoreLine(scan.Score{
+		ActionableCount: 7, ActionableDensity: 0.19, ProvisionalCount: 6, Tests: 3650, Files: 382,
+	})
+	want := "testscan: 7 actionable findings (0.19 per 100 tests) \u00b7 6 provisional \u00b7 3650 tests in 382 files"
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+	one := scan.FormatScoreLine(scan.Score{ActionableCount: 1, Tests: 10, Files: 2})
+	if !strings.HasPrefix(one, "testscan: 1 actionable finding (") {
+		t.Fatalf("singular: %q", one)
+	}
+	noTests := scan.FormatScoreLine(scan.Score{Files: 4})
+	if noTests != "testscan: 0 actionable findings \u00b7 0 provisional \u00b7 4 files" {
+		t.Fatalf("unknown tests: %q", noTests)
 	}
 	withTrend := scan.FormatScoreLine(scan.Score{
-		ConfirmedCount: 3, ConfirmedDensity: 1.5,
+		ActionableCount: 3, ActionableDensity: 1.5, Tests: 200, Files: 5,
 		Trend: &scan.Trend{Direction: "improved", DeltaCount: -2},
 	})
-	if withTrend != "Confirmed: 3 (density 1.50) · trend improved (Δ -2)" {
+	if !strings.HasSuffix(withTrend, " \u00b7 trend improved (\u0394 -2)") {
 		t.Fatalf("got %q", withTrend)
 	}
 	withPre := scan.FormatScoreLine(scan.Score{
-		ConfirmedCount: 0, ConfirmedDensity: 0,
 		Trend: &scan.Trend{Direction: "unchanged", DeltaCount: 0, CurrentPreBaseline: true},
 	})
-	if withPre != "Confirmed: 0 (density 0.00) · trend unchanged (Δ 0) [pre-baseline]" {
+	if !strings.HasSuffix(withPre, "trend unchanged (\u0394 0) [pre-baseline]") {
 		t.Fatalf("got %q", withPre)
 	}
-	withGrade := scan.FormatScoreLine(scan.Score{
-		ConfirmedCount: 1, ConfirmedDensity: 0.5,
-		Value: 72, Grade: "C", ShowGrade: true,
+}
+
+func TestRuleTier(t *testing.T) {
+	withCatalog(t, map[string]scan.PrecisionInfo{
+		"act-exact":       scan.Measured(20, 20),
+		"act-n19":         scan.Measured(19, 19),
+		"act-wilson-low":  scan.Measured(16, 20),
+		"prov":            scan.Measured(4, 5),
+		"prov-p79":        scan.Measured(15, 19),
+		"prov-n4":         scan.Measured(4, 4),
+		"est":             {Precision: 1, Source: scan.SourceEstimated},
+		"derived":         {Precision: 0.95, N: 40, Source: scan.SourceMeasured},
+		"explicit-wilson": {Precision: 0.9, N: 25, Source: scan.SourceMeasured, WilsonLow: 0.69},
 	})
-	want := "Confirmed: 1 (density 0.50)\nHealth Score: 72 (C) [deprecated]"
-	if withGrade != want {
-		t.Fatalf("got %q", withGrade)
+	for rule, want := range map[string]string{
+		"act-exact": scan.TierActionable, "act-n19": scan.TierProvisional,
+		"act-wilson-low": scan.TierProvisional, "prov": scan.TierProvisional,
+		"prov-p79": scan.TierLow, "prov-n4": scan.TierLow, "est": scan.TierLow,
+		"derived": scan.TierActionable, "explicit-wilson": scan.TierProvisional,
+		"not-in-catalog": scan.TierLow, "parse-error": scan.TierLow,
+	} {
+		if got := scan.RuleTier(rule); got != want {
+			t.Errorf("RuleTier(%s)=%s, want %s", rule, got, want)
+		}
 	}
 }
 
-func TestCountConfirmed(t *testing.T) {
+func TestCountTiersAndDensity(t *testing.T) {
+	withCatalog(t, map[string]scan.PrecisionInfo{
+		"a": scan.Measured(30, 30), "p": scan.Measured(5, 5),
+	})
 	findings := []scan.Finding{
-		{Rule: "empty-test"},         // 1.0
-		{Rule: "name-body-mismatch"}, // 0.35
-		{Rule: "weak-assert"},        // 0.25 < 0.3
-		{Rule: "no-assert"},          // 0.0
-		{Rule: "parse-error"},        // excluded
+		{Rule: "a", Severity: "error"}, {Rule: "a", Severity: "error"},
+		{Rule: "p", Severity: "warning"}, {Rule: "zzz", Severity: "warning"},
+		{Rule: "parse-error", Severity: "note"},
 	}
-	if n := scan.CountConfirmed(findings); n != 2 {
-		t.Fatalf("CountConfirmed=%d, want 2", n)
+	s := scan.CalculateScoreWithTests(findings, 3, 400)
+	if s.ActionableCount != 2 || s.ProvisionalCount != 1 || s.ShownCount != 5 || s.Tests != 400 {
+		t.Fatalf("score=%+v", s)
+	}
+	if s.ActionableDensity != 0.5 { // 2 per 400 tests = 0.5 per 100
+		t.Fatalf("density=%v, want 0.5", s.ActionableDensity)
+	}
+	if s.ConfirmedCount != 2 || s.ConfirmedDensity != 0.5 {
+		t.Fatalf("deprecated confirmed_* must mirror actionable: %+v", s)
+	}
+	zero := scan.CalculateScoreWithTests(findings, 3, 0)
+	if zero.ActionableDensity != 0 {
+		t.Fatalf("tests==0 must give density 0, got %v", zero.ActionableDensity)
+	}
+	if d := scan.DensityPer100(5, 0); d != 0 {
+		t.Fatalf("DensityPer100 with 0 tests = %v", d)
 	}
 }
 
-func TestConfirmedDensity(t *testing.T) {
-	// files=9 → log10(10)=1
-	d := scan.ConfirmedDensity(4, 9)
-	if d != 4.0 {
-		t.Fatalf("density=%v, want 4", d)
+func TestFilterForDisplay(t *testing.T) {
+	withCatalog(t, map[string]scan.PrecisionInfo{
+		"act": scan.Measured(30, 30), "prov": scan.Measured(5, 5),
+		"low": {Precision: 1, Source: scan.SourceEstimated},
+	})
+	findings := []scan.Finding{
+		{Rule: "act", Severity: "error"},
+		{Rule: "prov", Severity: "warning"},
+		{Rule: "low", Severity: "error"},
+		{Rule: "act", Severity: "note"}, // focus drops notes
+		{Rule: "parse-error", Severity: "note"},
 	}
-	// files=0 → denom max(1, log10(1))=1
-	d0 := scan.ConfirmedDensity(3, 0)
-	if d0 != 3.0 {
-		t.Fatalf("density=%v, want 3", d0)
+	rules := func(fs []scan.Finding) string {
+		var out []string
+		for _, f := range fs {
+			out = append(out, f.Rule+"/"+f.Severity)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{})); got != "act/error,prov/warning" {
+		t.Errorf("default: %s", got)
+	}
+	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{ShowLowPrecision: true})); got != "act/error,prov/warning,low/error" {
+		t.Errorf("show-low: %s", got)
+	}
+	if got := scan.FilterForDisplay(findings, scan.DisplayOptions{All: true}); len(got) != len(findings) {
+		t.Errorf("all: %s", rules(got))
+	}
+}
+
+func TestPrecisionInfo_WilsonDerived(t *testing.T) {
+	p := scan.PrecisionInfo{Precision: 0.9, N: 40, Source: scan.SourceMeasured}
+	want := scan.WilsonLower(36, 40, scan.WilsonZ95)
+	if math.Abs(p.Wilson()-want) > 1e-9 {
+		t.Fatalf("wilson=%v want %v", p.Wilson(), want)
+	}
+	if (scan.PrecisionInfo{Precision: 1, Source: scan.SourceEstimated}).Wilson() != 0 {
+		t.Fatal("estimated entries have no wilson bound")
 	}
 }
 
@@ -250,7 +322,7 @@ func TestComputeTrend(t *testing.T) {
 			if tr.Direction != tc.wantDir || tr.DeltaCount != tc.wantDelta {
 				t.Fatalf("got dir=%s Δ=%d, want %s Δ=%d", tr.Direction, tr.DeltaCount, tc.wantDir, tc.wantDelta)
 			}
-			if tr.PrevConfirmedCount != tc.prevN || tr.PrevConfirmedDensity != tc.prevD {
+			if tr.PrevActionableCount != tc.prevN || tr.PrevActionableDensity != tc.prevD {
 				t.Fatalf("prev fields: %+v", tr)
 			}
 		})
@@ -258,42 +330,33 @@ func TestComputeTrend(t *testing.T) {
 }
 
 func TestTrendCurrentMetrics_PreBaseline(t *testing.T) {
-	post := scan.CalculateScore(nil, 10) // confirmed 0 after baseline
+	withCatalog(t, map[string]scan.PrecisionInfo{"act": scan.Measured(30, 30)})
+	post := scan.CalculateScoreWithTests(nil, 10, 200) // 0 actionable after baseline
 	pre := []scan.Finding{
-		{Rule: "empty-test", Severity: "error", File: "a.py"},
-		{Rule: "empty-test", Severity: "error", File: "b.py"},
-		{Rule: "no-assert", Severity: "note", File: "c.py"}, // precision 0 → dropped by LP filter
+		{Rule: "act", Severity: "error", File: "a.py"},
+		{Rule: "act", Severity: "error", File: "b.py"},
+		{Rule: "no-assert", Severity: "note", File: "c.py"}, // dropped by display filters
 	}
-	count, dens := scan.TrendCurrentMetrics(post, pre, false, true, 10)
+	count, dens := scan.TrendCurrentMetrics(post, pre, scan.DisplayOptions{}, 200)
 	if count != 2 {
-		t.Fatalf("pre-baseline confirmed=%d, want 2", count)
+		t.Fatalf("pre-baseline actionable=%d, want 2", count)
 	}
-	wantDens := scan.ConfirmedDensity(2, 10)
-	if dens != wantDens {
-		t.Fatalf("dens=%v, want %v", dens, wantDens)
+	if dens != 1.0 {
+		t.Fatalf("dens=%v, want 1.0 per 100 tests", dens)
 	}
-	c2, d2 := scan.TrendCurrentMetrics(post, nil, false, true, 10)
+	c2, d2 := scan.TrendCurrentMetrics(post, nil, scan.DisplayOptions{}, 200)
 	if c2 != 0 || d2 != 0 {
 		t.Fatalf("nil pre should use post score, got %d %v", c2, d2)
 	}
 }
 
-func TestCalculateScore_ConfirmedFields(t *testing.T) {
-	findings := []scan.Finding{
-		{Severity: "error", Rule: "empty-test"},
-		{Severity: "note", Rule: "name-body-mismatch"},
-		{Severity: "note", Rule: "weak-assert"},
-		{Severity: "note", Rule: "parse-error"},
+func TestComputeTrend_LegacyIgnoresDensity(t *testing.T) {
+	tr := scan.ComputeTrend(3, 9.9, 3, -1)
+	if tr.Direction != "unchanged" || tr.DeltaDensity != 0 {
+		t.Fatalf("trend=%+v", tr)
 	}
-	s := scan.CalculateScore(findings, 9)
-	if s.ConfirmedCount != 2 {
-		t.Fatalf("ConfirmedCount=%d, want 2", s.ConfirmedCount)
-	}
-	if s.ConfirmedDensity != 2.0 {
-		t.Fatalf("ConfirmedDensity=%v, want 2", s.ConfirmedDensity)
-	}
-	if !s.GradeDeprecated {
-		t.Fatal("GradeDeprecated should be true")
+	if tr := scan.ComputeTrend(2, 9.9, 3, -1); tr.Direction != "improved" {
+		t.Fatalf("trend=%+v", tr)
 	}
 }
 
@@ -335,23 +398,16 @@ func TestCalculateScore_LargeRepoHighPrecision(t *testing.T) {
 	}
 }
 
-func TestFilterLowPrecision(t *testing.T) {
+func TestFilterTiers(t *testing.T) {
+	withCatalog(t, map[string]scan.PrecisionInfo{
+		"act": scan.Measured(30, 30), "prov": scan.Measured(5, 5),
+		"est": {Precision: 1, Source: scan.SourceEstimated},
+	})
 	in := []scan.Finding{
-		{Rule: "no-assert", Severity: "note"},
-		{Rule: "empty-test", Severity: "error"},
-		{Rule: "weak-assert", Severity: "note"},        // 0.25 < 0.3
-		{Rule: "name-body-mismatch", Severity: "note"}, // 0.35
-		{Rule: "parse-error", Severity: "note"},
+		{Rule: "act"}, {Rule: "prov"}, {Rule: "est"}, {Rule: "unknown"}, {Rule: "parse-error"},
 	}
-	got := scan.FilterLowPrecision(in)
-	if len(got) != 3 {
-		t.Fatalf("got %d, want 3: %v", len(got), got)
-	}
-	for _, f := range got {
-		switch f.Rule {
-		case "empty-test", "name-body-mismatch", "parse-error":
-		default:
-			t.Fatalf("unexpected kept rule %q", f.Rule)
-		}
+	got := scan.FilterTiers(in)
+	if len(got) != 3 || got[0].Rule != "act" || got[1].Rule != "prov" || got[2].Rule != "parse-error" {
+		t.Fatalf("got %v", got)
 	}
 }

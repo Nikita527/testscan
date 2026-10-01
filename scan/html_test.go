@@ -33,7 +33,7 @@ func TestWriteHTML(t *testing.T) {
 		},
 	}
 
-	score := scan.CalculateScore(findings, 2)
+	score := scan.CalculateScoreWithTests(findings, 2, 40)
 	score.PathRoot = `C:\proj`
 	var buf bytes.Buffer
 	if err := scan.WriteHTML(&buf, findings, score); err != nil {
@@ -44,7 +44,6 @@ func TestWriteHTML(t *testing.T) {
 	for _, want := range []string{
 		"<!DOCTYPE html>",
 		"testscan",
-		"3 finding(s)",
 		"id=\"rule-empty-test\"",
 		"id=\"rule-only-happy-path\"",
 		"tests/test_a.py",
@@ -52,13 +51,13 @@ func TestWriteHTML(t *testing.T) {
 		"data-sev=\"error\"",
 		"data-sev=\"warning\"",
 		`id="q"`,
-		"score-caption",
 		"signal-caption",
-		"precision &lt; 0.3",
 		"--show-low-precision",
-		"Confirmed density",
-		"confirmed",
-		"density",
+		"--all",
+		"actionable-count",
+		"per 100 tests",
+		"hero-secondary",
+		"0 provisional \u00b7 40 tests in 2 files",
 		"vscode://file/",
 		`data-view="file"`,
 		`data-view="rule"`,
@@ -73,9 +72,7 @@ func TestWriteHTML(t *testing.T) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	if !strings.Contains(out, "grade") {
-		t.Error("want muted grade text in hero")
-	}
+	assertNoGrade(t, out)
 	if strings.Contains(out, `data-sev="note" checked>`) {
 		t.Error("note filter must be unchecked by default")
 	}
@@ -91,16 +88,84 @@ func TestWriteHTML(t *testing.T) {
 	}
 }
 
-func TestWriteHTML_ShowGradeRing(t *testing.T) {
-	score := scan.CalculateScore(nil, 1)
-	score.ShowGrade = true
+func assertNoGrade(t *testing.T, out string) {
+	t.Helper()
+	for _, bad := range []string{"score-value", "score-grade", "ring-fg", "data-grade", "grade-muted", "Health Score", "deprecated"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("HTML must not carry grade artifacts, found %q", bad)
+		}
+	}
+}
+
+func TestWriteHTML_HeroSingleNumber(t *testing.T) {
+	withCatalog(t, map[string]scan.PrecisionInfo{
+		"act":  scan.Measured(24, 25),
+		"prov": scan.Measured(5, 5),
+		"low":  {Precision: 0.5, Source: scan.SourceEstimated},
+	})
+	findings := []scan.Finding{
+		{File: "a.py", Line: 1, Rule: "act", Severity: "error", Message: "m1", Fingerprint: "fp1"},
+		{File: "a.py", Line: 2, Rule: "prov", Severity: "warning", Message: "m2", Fingerprint: "fp2"},
+		{File: "a.py", Line: 3, Rule: "low", Severity: "warning", Message: "m3", Fingerprint: "fp3"},
+	}
+	score := scan.CalculateScoreWithTests(findings, 1, 50)
+	score.ShowLow = true
 	var buf bytes.Buffer
-	if err := scan.WriteHTML(&buf, nil, score); err != nil {
+	if err := scan.WriteHTML(&buf, findings, score); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "score-value") || !strings.Contains(out, `data-grade=`) {
-		t.Fatalf("want Health Score ring when ShowGrade: %s", out[:min(400, len(out))])
+	assertNoGrade(t, out)
+	if strings.Count(out, `class="actionable-count"`) != 1 {
+		t.Error("exactly one headline number expected")
+	}
+	for _, want := range []string{
+		`<span class="actionable-count">1</span>`,
+		"2.00 per 100 tests",
+		"1 provisional \u00b7 50 tests in 1 files",
+		`class="tier tier-provisional"`,
+		`class="tier tier-low"`,
+		"p=0.96 n=25 measured",
+		">estimated<",
+		"actionable, provisional and low-precision",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// No second headline-ish count such as "N finding(s)".
+	if strings.Contains(out, "finding(s)") {
+		t.Error("contradictory finding count line must be gone")
+	}
+}
+
+func TestWriteHTML_CollapsedGroupLabelsAllFingerprints(t *testing.T) {
+	findings := []scan.Finding{
+		{File: "a.py", Line: 4, Rule: "empty-test", Severity: "error", Message: "same", Fingerprint: "fpA"},
+		{File: "a.py", Line: 8, Rule: "empty-test", Severity: "error", Message: "same", Fingerprint: "fpB"},
+		{File: "a.py", Line: 9, Rule: "empty-test", Severity: "error", Message: "same"}, // no fingerprint
+		{File: "a.py", Line: 12, Rule: "empty-test", Severity: "error", Message: "same", Fingerprint: "fpC"},
+	}
+	var buf bytes.Buffer
+	if err := scan.WriteHTML(&buf, findings, scan.CalculateScore(findings, 1)); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "\u00d74") {
+		t.Fatal("want x4 collapse badge")
+	}
+	// One .lbl per group, carrying every fingerprint and its own line.
+	if !strings.Contains(out, `data-fps="fpA,fpB,fpC"`) || !strings.Contains(out, `data-lines="4,8,12"`) {
+		t.Fatalf("group must carry all fingerprints/lines: %s", out)
+	}
+	if strings.Count(out, `data-fps="`) != 2 { // file view + rule view
+		t.Errorf("want one label group per view, got %d", strings.Count(out, `data-fps="`))
+	}
+	// JS applies a toggle to every fingerprint of the group.
+	for _, want := range []string{"groupFps(span)", "items.every(", "items.forEach("} {
+		if !strings.Contains(out, want) {
+			t.Errorf("labelling script missing %q", want)
+		}
 	}
 }
 
@@ -137,15 +202,13 @@ func TestWriteHTML_Empty(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "0 finding(s)") {
-		t.Fatalf("want zero summary, got: %s", out[:min(200, len(out))])
-	}
 	if !strings.Contains(out, "No findings") {
 		t.Fatal("want empty toc message")
 	}
-	if !strings.Contains(out, "confirmed") {
-		t.Fatalf("want confirmed hero, got: %s", out[:min(400, len(out))])
+	if !strings.Contains(out, `<span class="actionable-count">0</span>`) {
+		t.Fatalf("want actionable hero, got: %s", out[:min(400, len(out))])
 	}
+	assertNoGrade(t, out)
 }
 
 func TestWriteHTML_SnippetRelatedDedup(t *testing.T) {
@@ -238,7 +301,7 @@ func TestWriteHTML_ToolErrors(t *testing.T) {
 		`data-sev="tool-error"`,
 		`data-sev="tool-error"> tool error</label>`,
 		"<strong>1</strong> tool error",
-		" · 1 tool error · ",
+		" · 1 tool error</p>",
 		`data-sev="note"`,
 	} {
 		if !strings.Contains(out, want) {
@@ -251,6 +314,7 @@ func TestWriteHTML_ToolErrors(t *testing.T) {
 }
 
 func TestWriteHTML_PrecisionSortAndBadge(t *testing.T) {
+	withOverrides(t, map[string]float64{"empty-test": 1, "assert-true": 0.9, "name-body-mismatch": 0.35, "no-assert": 0})
 	findings := []scan.Finding{
 		{File: "a.py", Line: 1, Rule: "name-body-mismatch", Severity: "note", Message: "mismatch"},
 		{File: "b.py", Line: 1, Rule: "assert-true", Severity: "warning", Message: "true"},

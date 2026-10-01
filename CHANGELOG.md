@@ -5,7 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## 0.5.0 (unreleased)
+
+Honest metrics and a quiet default: only rules with **measured** precision are trusted, and the default output shows only those.
+
+### Breaking changes / Migration
+
+- **Focus is now the default.** The old `--focus` filter (error/warning only, no notes / tool errors / zero-precision or demoted rules) always applies. Use **`--all`** (or `all = true` in config) to get the old full output; `--focus` is still accepted but is a deprecated no-op that prints a warning on stderr.
+- **Precision tiers replace "confirmed".** Rules are `actionable` (measured, Wilson 95% lower bound >= 0.7, N >= 20), `provisional` (measured, precision >= 0.8, N >= 5) or `low` (everything else). By default only actionable and provisional findings are shown; `--show-low-precision` adds `low` (focus stays on), `--all` shows everything. Thresholds are exported constants in `scan/score.go`.
+- **Unknown / unmeasured rules are no longer trusted by default.** Every catalog entry that is only *estimated* (and every rule missing from the catalog) is `low`, so a default run is empty until precision is measured with `testscan precision` and added to the catalog. Gate with `--all` if you need the previous behaviour.
+- **Density is now per 100 tests**, not per `log10(files+1)`: `actionable_per_100_tests = actionable_count * 100 / tests` (0 when no tests were counted). Tests are counted from the AST, so they are 0 when no selected rule needs the AST.
+- **JSON summary:** new `actionable_count`, `actionable_per_100_tests`, `provisional_count`, `shown_count`, `tests`. `confirmed_count` / `confirmed_density` are **deprecated** aliases of `actionable_count` / `actionable_per_100_tests` (note: the values changed meaning) and will be removed in the next release. Trend gains `prev_actionable_count` / `prev_actionable_density`; `prev_confirmed_*` stay as deprecated aliases with the same values. `--compare` still reads older reports that only have `confirmed_*` (count-only comparison, so the first trend after upgrading is approximate).
+- **JSON findings** gain additive `tier` and `precision` (`value`, `n`, `source`, `wilson_lower`) fields.
+- **Health Score / A-F grade removed from text and HTML.** JSON keeps `health_score`, `grade` and `grade_deprecated: true` for one more release. `--show-grade` is a deprecated no-op (stderr warning).
+- **Text output** starts with a header line (`testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files`) instead of ending with `Confirmed: N (density X.XX)`; provisional findings are tagged `[provisional]`.
+- **Exit code, SARIF and Code Quality** are evaluated on the **shown** findings (after baseline, focus and tier filtering). With the default view only actionable/provisional rules can fail `--fail-on`; use `--all` to gate on everything.
+
+<!-- PRECISION_TABLE -->
+
+### Added
+
+- `--all` flag and `all = true` config key.
+- `scan.RuleTier`, `scan.Measured`, `scan.FilterForDisplay`, `scan.Result.Tests`, `scan.CalculateScoreWithTests`.
+- HTML: single headline number (actionable + trend), secondary provisional / tests line, per-finding tier badge and rule precision (`p=0.85 n=24 measured` / `estimated`).
+- Docs: precision tiers, per-100-tests density, `testscan precision` and the labels.json / HTML labelling workflow.
+
+### Fixed
+
+- HTML labelling: a collapsed `x N` row now applies a TP/FP click to **all** fingerprints in the group (previously only the first).
+
+
 
 ## [0.4.0] - 2026-10-01
 

@@ -23,7 +23,8 @@ type Config struct {
 	PythonFunctions  []string
 	PythonClasses    []string
 	RespectGitignore bool // default true
-	ShowLowPrecision bool // emit findings below MinPrecisionForDisplay
+	ShowLowPrecision bool // also show low-tier findings (rules not actionable/provisional)
+	All              bool // show everything: no focus filter, all precision tiers
 	Rules            map[string]RuleConfig
 	Overrides        []Override
 }
@@ -80,6 +81,7 @@ type fileTOML struct {
 	RespectGitignore *bool               `toml:"respect-gitignore"`
 	ShowLowPrecision *bool               `toml:"show-low-precision"`
 	ShowLowPrecSnake *bool               `toml:"show_low_precision"`
+	All              *bool               `toml:"all"`
 	Rules            map[string]ruleTOML `toml:"rules"`
 	Overrides        []overrideTOML      `toml:"overrides"`
 }
@@ -195,7 +197,7 @@ func testscanSectionPresent(t fileTOML) bool {
 		len(t.PythonFunctions) > 0 || len(t.PythonClasses) > 0 {
 		return true
 	}
-	if t.RespectGitignore != nil || t.ShowLowPrecision != nil || t.ShowLowPrecSnake != nil ||
+	if t.RespectGitignore != nil || t.ShowLowPrecision != nil || t.ShowLowPrecSnake != nil || t.All != nil ||
 		len(t.Rules) > 0 || len(t.Overrides) > 0 {
 		return true
 	}
@@ -289,6 +291,7 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 	} else if raw.ShowLowPrecSnake != nil {
 		showLow = *raw.ShowLowPrecSnake
 	}
+	showAll := raw.All != nil && *raw.All
 
 	pythonFiles := raw.PythonFiles
 	pythonFunctions := raw.PythonFunctions
@@ -358,6 +361,7 @@ func fromTOML(raw fileTOML, source string, pytest *pytestIniTOML) (Config, error
 		PythonClasses:    pythonClasses,
 		RespectGitignore: respect,
 		ShowLowPrecision: showLow,
+		All:              showAll,
 		Rules:            rules,
 		Overrides:        overrides,
 	}, nil

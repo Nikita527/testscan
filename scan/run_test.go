@@ -191,3 +191,33 @@ func TestRun_ResetsDiscoveryPatterns(t *testing.T) {
 		t.Fatalf("Run must clear discovery when Options empty, got funcs=%v classes=%v", f, c)
 	}
 }
+
+type threeTestsParser struct{}
+
+func (threeTestsParser) Parse(context.Context, string, []byte) (parse.Model, error) {
+	return parse.Model{Tests: make([]parse.TestFunc, 3)}, nil
+}
+
+func TestRun_CountsTests(t *testing.T) {
+	res, err := scan.Run(context.Background(), []string{"testdata"}, scan.Options{
+		Rules:  []scan.Rule{astStubRule{}},
+		Parser: threeTestsParser{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Files != 2 || res.Tests != 6 {
+		t.Fatalf("files=%d tests=%d, want 2 files and 6 tests", res.Files, res.Tests)
+	}
+	// Without an AST rule the model is never built: tests stay unknown (0).
+	res, err = scan.Run(context.Background(), []string{"testdata"}, scan.Options{
+		Rules:  []scan.Rule{stubRule{}},
+		Parser: threeTestsParser{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Tests != 0 {
+		t.Fatalf("tests=%d, want 0 when no rule needs the AST", res.Tests)
+	}
+}

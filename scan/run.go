@@ -34,6 +34,37 @@ type Finding struct {
 	// RelatedLine / RelatedQualName point at a twin (e.g. near-duplicate).
 	RelatedLine     int    `json:"related_line,omitempty"`
 	RelatedQualName string `json:"related_qual_name,omitempty"`
+
+	// Tier and Precision describe the rule's precision tier. They are filled at
+	// emit time (JSON), never by Run, and never affect fingerprints.
+	Tier      string        `json:"tier,omitempty"`
+	Precision *RulePrecInfo `json:"precision,omitempty"`
+}
+
+// RulePrecInfo is the JSON view of a rule's catalog precision.
+type RulePrecInfo struct {
+	Value     float64 `json:"value"`
+	N         int     `json:"n"`
+	Source    string  `json:"source"`
+	WilsonLow float64 `json:"wilson_lower"`
+}
+
+// AnnotateTiers returns a copy of findings with Tier and Precision filled from
+// the catalog (parse-error tool findings are left unannotated).
+func AnnotateTiers(findings []Finding) []Finding {
+	out := make([]Finding, len(findings))
+	copy(out, findings)
+	for i := range out {
+		if out[i].Rule == "parse-error" {
+			continue
+		}
+		info, _ := LookupPrecision(out[i].Rule)
+		out[i].Tier = info.Tier()
+		out[i].Precision = &RulePrecInfo{
+			Value: info.Precision, N: info.N, Source: info.Source, WilsonLow: info.Wilson(),
+		}
+	}
+	return out
 }
 
 // PathOverride disables rules for paths matching Path (glob).
@@ -58,6 +89,11 @@ type File struct {
 
 	// AssertHelpers are glob patterns for assert helper names (from config).
 	AssertHelpers []string
+
+	// ProjectRoot is the project root (Options.PathRoot / cwd). Rules use it to
+	// tell project packages from third-party ones and to detect project-wide
+	// conventions (e.g. timezone-aware dates). Empty outside scan.Run.
+	ProjectRoot string
 }
 
 type Rule interface {
@@ -114,9 +150,12 @@ type ProjectRule interface {
 }
 
 // Result is the outcome of a scan: findings plus how many test files were walked.
+// Tests is the number of test functions found by the AST helper (functions and
+// class methods); it is 0 when no selected rule needs the AST.
 type Result struct {
 	Findings []Finding
 	Files    int
+	Tests    int
 }
 
 func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
@@ -154,6 +193,7 @@ func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
 	}
 
 	perFile := make([][]Finding, len(files))
+	testsPerFile := make([]int, len(files))
 	contents := make(map[string][]byte, len(files))
 	for _, f := range files {
 		contents[f.Path] = f.Content
@@ -175,10 +215,14 @@ func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
 			f := file
 			f.AllowHeuristicFallback = opts.AllowHeuristicFallback
 			f.AssertHelpers = opts.AssertHelpers
+			f.ProjectRoot = pathRoot
 			if needAST {
 				f = withAST(gctx, f, opts.Parser, batchPool)
 			}
 			var fs []Finding
+			if f.ModelOK && f.ModelErr == nil {
+				testsPerFile[i] = len(f.Model.Tests)
+			}
 			if needAST && f.ModelOK && f.ModelErr != nil {
 				fs = append(fs, parseErrorFinding(f))
 			}
@@ -234,7 +278,11 @@ func Run(ctx context.Context, roots []string, opts Options) (Result, error) {
 	RelativizeFindings(findings, pathRoot)
 
 	SortFindings(findings)
-	return Result{Findings: findings, Files: len(files)}, nil
+	tests := 0
+	for _, n := range testsPerFile {
+		tests += n
+	}
+	return Result{Findings: findings, Files: len(files), Tests: tests}, nil
 }
 
 func ruleDisabledForPath(ruleID, filePath, pathRoot string, overrides []PathOverride) bool {

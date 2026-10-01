@@ -14,7 +14,7 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality] [--fail-on error|warning|never] [--rule ID] [--enable ID] [--disable ID] [--baseline path.json] [--compare path.json] [--show-grade] [--coverage path.json] [--diff base-ref] [--focus] [--show-low-precision] [--workers N] [-o|--output PATH] [--open]\n       testscan precision --labels .testscan/labels.json [--report out.json] [--format text|json]"
+const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality] [--fail-on error|warning|never] [--rule ID] [--enable ID] [--disable ID] [--baseline path.json] [--compare path.json] [--coverage path.json] [--diff base-ref] [--all] [--show-low-precision] [--workers N] [-o|--output PATH] [--open]\n       testscan precision --labels .testscan/labels.json [--report out.json] [--format text|json]"
 
 var errHelp = errors.New("help")
 
@@ -28,10 +28,11 @@ type cliArgs struct {
 	disable             []string
 	baseline            string
 	compare             string
-	showGrade           bool
+	showGrade           bool // deprecated no-op
 	coverage            string
 	diff                string
-	focus               bool
+	focus               bool // deprecated no-op (focus is the default)
+	all                 bool
 	showLowPrecision    bool
 	showLowPrecisionSet bool
 	workers             int
@@ -65,6 +66,12 @@ func main() {
 		os.Exit(2)
 	}
 	args = applyConfig(args, cfg)
+	if args.showGrade {
+		fmt.Fprintln(os.Stderr, "testscan: warning: --show-grade is deprecated and has no effect (Health Score/grade was removed from text and HTML output; JSON still carries it)")
+	}
+	if args.focus {
+		fmt.Fprintln(os.Stderr, "testscan: warning: --focus is deprecated and has no effect (focus is now the default; use --all for the full output)")
+	}
 
 	selected, err := rules.Select(rules.Default(), rules.All(), args.only, args.enable, args.disable)
 	if err != nil {
@@ -142,15 +149,13 @@ func main() {
 		}
 	}
 
-	if args.focus {
-		findings = scan.FilterFocus(findings)
-	}
+	// Display filters: default = focus + actionable/provisional tiers;
+	// --show-low-precision adds low tiers; --all disables every filter.
+	// Exit code, SARIF, codequality and the score all use this shown set.
+	display := displayOptions(args)
+	findings = scan.FilterForDisplay(findings, display)
 
-	if !args.showLowPrecision {
-		findings = scan.FilterLowPrecision(findings)
-	}
-
-	score := scan.CalculateScore(findings, result.Files)
+	score := scan.CalculateScoreWithTests(findings, result.Files, result.Tests)
 	if comparePath != "" {
 		prev, err := scan.LoadComparePoint(comparePath)
 		if err != nil {
@@ -158,13 +163,14 @@ func main() {
 			os.Exit(2)
 		}
 		currCount, currDens := scan.TrendCurrentMetrics(
-			score, preBaseline, args.focus, !args.showLowPrecision, result.Files,
+			score, preBaseline, display, result.Tests,
 		)
-		trend := scan.ComputeTrend(currCount, currDens, prev.ConfirmedCount, prev.ConfirmedDensity)
+		trend := scan.ComputeTrend(currCount, currDens, prev.ActionableCount, prev.ActionableDensity)
 		trend.CurrentPreBaseline = preBaseline != nil
 		score.Trend = &trend
 	}
-	score.ShowGrade = args.showGrade
+	score.ShowAll = args.all
+	score.ShowLow = args.showLowPrecision
 	score.PathRoot = cwd
 
 	if err := emitFindings(findings, score, args.format, args.output, args.open); err != nil {
@@ -173,6 +179,11 @@ func main() {
 	}
 
 	os.Exit(exitCode(findings, args.failOn))
+}
+
+// displayOptions maps CLI/config flags to the display filter.
+func displayOptions(args cliArgs) scan.DisplayOptions {
+	return scan.DisplayOptions{All: args.all, ShowLowPrecision: args.showLowPrecision}
 }
 
 // applyConfig: CLI overrides config; disable/enable = config ∪ CLI.
@@ -185,6 +196,9 @@ func applyConfig(args cliArgs, cfg config.Config) cliArgs {
 	}
 	if !args.showLowPrecisionSet && cfg.ShowLowPrecision {
 		args.showLowPrecision = true
+	}
+	if cfg.All {
+		args.all = true
 	}
 	if len(cfg.Disable) > 0 {
 		args.disable = append(append([]string{}, cfg.Disable...), args.disable...)
@@ -292,6 +306,8 @@ func parseArgs(argv []string) (cliArgs, error) {
 			out.diff = strings.TrimPrefix(a, "--diff=")
 		case a == "--focus":
 			out.focus = true
+		case a == "--all":
+			out.all = true
 		case a == "--show-low-precision":
 			out.showLowPrecision = true
 			out.showLowPrecisionSet = true
@@ -352,14 +368,20 @@ func writeFindings(w io.Writer, findings []scan.Finding, score scan.Score, forma
 	case "codequality":
 		return scan.WriteCodeQuality(w, findings)
 	default:
+		if _, err := fmt.Fprintln(w, scan.FormatScoreLine(score)); err != nil {
+			return err
+		}
 		for _, f := range findings {
-			if _, err := fmt.Fprintf(w, "%s:%d: %s %s: %s\n",
-				f.File, f.Line, f.Severity, f.Rule, f.Message); err != nil {
+			tag := ""
+			if f.Rule != "parse-error" && scan.RuleTier(f.Rule) == scan.TierProvisional {
+				tag = " [provisional]"
+			}
+			if _, err := fmt.Fprintf(w, "%s:%d: %s %s: %s%s\n",
+				f.File, f.Line, f.Severity, f.Rule, f.Message, tag); err != nil {
 				return err
 			}
 		}
-		_, err := fmt.Fprintln(w, scan.FormatScoreLine(score))
-		return err
+		return nil
 	}
 }
 

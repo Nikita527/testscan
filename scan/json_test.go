@@ -14,10 +14,29 @@ func TestWriteJSON(t *testing.T) {
 	findings := []scan.Finding{{
 		File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty",
 	}}
-	score := scan.CalculateScore(findings, 3)
+	withCatalog(t, map[string]scan.PrecisionInfo{"empty-test": scan.Measured(30, 30)})
+	score := scan.CalculateScoreWithTests(findings, 3, 200)
 	var buf bytes.Buffer
 	if err := scan.WriteJSON(&buf, findings, score); err != nil {
 		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(buf.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	{
+		var sum map[string]any
+		if err := json.Unmarshal(raw["summary"], &sum); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{
+			"actionable_count", "actionable_per_100_tests", "provisional_count", "shown_count",
+			"tests", "confirmed_count", "confirmed_density", "health_score", "grade", "grade_deprecated",
+		} {
+			if _, ok := sum[key]; !ok {
+				t.Errorf("summary missing %q", key)
+			}
+		}
 	}
 	var report scan.JSONReport
 	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
@@ -32,8 +51,18 @@ func TestWriteJSON(t *testing.T) {
 	if !report.Summary.GradeDeprecated {
 		t.Fatal("want grade_deprecated true")
 	}
-	if report.Summary.ConfirmedCount != score.ConfirmedCount || report.Summary.ConfirmedDensity != score.ConfirmedDensity {
-		t.Fatalf("confirmed mismatch: %+v vs score %+v", report.Summary, score)
+	sum := report.Summary
+	if sum.ActionableCount != 1 || sum.ActionablePer100 != 0.5 || sum.ProvisionalCount != 0 ||
+		sum.ShownCount != 1 || sum.Tests != 200 {
+		t.Fatalf("actionable summary: %+v", sum)
+	}
+	if sum.ConfirmedCount != sum.ActionableCount || sum.ConfirmedDensity != sum.ActionablePer100 {
+		t.Fatalf("deprecated confirmed_* must mirror actionable: %+v", sum)
+	}
+	f0 := report.Findings[0]
+	if f0.Tier != scan.TierActionable || f0.Precision == nil || f0.Precision.Source != "measured" ||
+		f0.Precision.N != 30 || f0.Precision.Value != 1 {
+		t.Fatalf("finding tier/precision: %+v %+v", f0, f0.Precision)
 	}
 	if len(report.Findings) != 1 || report.Findings[0].Rule != "empty-test" {
 		t.Fatalf("findings: %+v", report.Findings)

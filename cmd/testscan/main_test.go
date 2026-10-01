@@ -49,6 +49,7 @@ func TestParseArgs(t *testing.T) {
 		wantBaseline  string
 		wantCompare   string
 		wantShowGrade bool
+		wantAll       bool
 		wantCoverage  string
 		wantDiff      string
 		wantFocus     bool
@@ -155,6 +156,22 @@ func TestParseArgs(t *testing.T) {
 			wantShowGrade: true,
 		},
 		{
+			name:       "all_flag",
+			argv:       []string{"path", "--all"},
+			wantRoots:  []string{"path"},
+			wantFormat: "text",
+			wantFailOn: "error",
+			wantAll:    true,
+		},
+		{
+			name:       "focus_still_accepted_as_noop",
+			argv:       []string{"path", "--focus"},
+			wantRoots:  []string{"path"},
+			wantFormat: "text",
+			wantFailOn: "error",
+			wantFocus:  true,
+		},
+		{
 			name:       "format_codequality",
 			argv:       []string{"path", "--format", "codequality"},
 			wantRoots:  []string{"path"},
@@ -231,6 +248,9 @@ func TestParseArgs(t *testing.T) {
 			}
 			if got.diff != tc.wantDiff {
 				t.Fatalf("diff=%q, want %q", got.diff, tc.wantDiff)
+			}
+			if got.all != tc.wantAll {
+				t.Fatalf("all=%v, want %v", got.all, tc.wantAll)
 			}
 			if got.focus != tc.wantFocus {
 				t.Fatalf("focus=%v, want %v", got.focus, tc.wantFocus)
@@ -311,6 +331,13 @@ func TestApplyConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("config_all", func(t *testing.T) {
+		got := applyConfig(cliArgs{failOn: "error"}, config.Config{All: true})
+		if !got.all {
+			t.Fatal("want all from config")
+		}
+	})
+
 	t.Run("no_config_roots_default_dot", func(t *testing.T) {
 		got := applyConfig(cliArgs{failOn: "error"}, config.Config{})
 		if !strSliceEq(got.roots, []string{"."}) {
@@ -331,29 +358,58 @@ func strSliceEq(a, b []string) bool {
 	return true
 }
 
+func TestDisplayOptions(t *testing.T) {
+	if got := displayOptions(cliArgs{}); got != (scan.DisplayOptions{}) {
+		t.Fatalf("default must be focus+tiers (zero options), got %+v", got)
+	}
+	if got := displayOptions(cliArgs{focus: true}); got != (scan.DisplayOptions{}) {
+		t.Fatalf("--focus must be a no-op, got %+v", got)
+	}
+	if got := displayOptions(cliArgs{all: true}); !got.All {
+		t.Fatalf("--all must disable filtering: %+v", got)
+	}
+	if got := displayOptions(cliArgs{showLowPrecision: true}); got.All || !got.ShowLowPrecision {
+		t.Fatalf("--show-low-precision keeps focus: %+v", got)
+	}
+}
+
 func TestWriteFindings_TextAndJSONScore(t *testing.T) {
-	findings := []scan.Finding{{
-		File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty",
-	}}
-	score := scan.CalculateScore(findings, 5)
+	old := scan.RulePrecision
+	scan.RulePrecision = map[string]scan.PrecisionInfo{
+		"empty-test":  scan.Measured(30, 30),
+		"assert-true": scan.Measured(5, 5),
+	}
+	defer func() { scan.RulePrecision = old }()
+
+	findings := []scan.Finding{
+		{File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty"},
+		{File: "t.py", Line: 4, Rule: "assert-true", Severity: "warning", Message: "true"},
+	}
+	score := scan.CalculateScoreWithTests(findings, 5, 1000)
 	var textBuf strings.Builder
 	if err := writeFindings(&textBuf, findings, score, "text"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(textBuf.String(), "Confirmed:") {
-		t.Fatalf("text missing confirmed: %q", textBuf.String())
+	lines := strings.Split(strings.TrimSpace(textBuf.String()), "\n")
+	wantHeader := "testscan: 1 actionable finding (0.10 per 100 tests) · 1 provisional · 1000 tests in 5 files"
+	if lines[0] != wantHeader {
+		t.Fatalf("header = %q, want %q", lines[0], wantHeader)
 	}
-	if strings.Contains(textBuf.String(), "Health Score:") {
-		t.Fatalf("text must not show Health Score without ShowGrade: %q", textBuf.String())
+	if strings.Contains(lines[1], "[provisional]") || !strings.HasSuffix(lines[2], "[provisional]") {
+		t.Fatalf("only the provisional finding is tagged: %q", lines)
+	}
+	for _, bad := range []string{"Health Score", "Confirmed:", "grade"} {
+		if strings.Contains(textBuf.String(), bad) {
+			t.Fatalf("text must not contain %q: %q", bad, textBuf.String())
+		}
 	}
 
-	score.ShowGrade = true
-	var textGrade strings.Builder
-	if err := writeFindings(&textGrade, findings, score, "text"); err != nil {
+	var htmlBuf strings.Builder
+	if err := writeFindings(&htmlBuf, findings, score, "html"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(textGrade.String(), "Health Score:") || !strings.Contains(textGrade.String(), "[deprecated]") {
-		t.Fatalf("want deprecated Health Score: %q", textGrade.String())
+	if !strings.Contains(htmlBuf.String(), `class="tier tier-provisional"`) || strings.Contains(htmlBuf.String(), "score-grade") {
+		t.Fatal("html must badge provisional findings and carry no grade")
 	}
 
 	var jsonBuf strings.Builder
@@ -361,7 +417,11 @@ func TestWriteFindings_TextAndJSONScore(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := jsonBuf.String()
-	for _, want := range []string{`"summary"`, `"health_score"`, `"confirmed_count"`, `"confirmed_density"`, `"grade_deprecated"`, `"findings"`} {
+	for _, want := range []string{
+		`"summary"`, `"health_score"`, `"confirmed_count"`, `"confirmed_density"`, `"grade_deprecated": true`,
+		`"actionable_count": 1`, `"actionable_per_100_tests"`, `"provisional_count": 1`,
+		`"shown_count": 2`, `"tests": 1000`, `"tier": "provisional"`, `"precision"`, `"findings"`,
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("json missing %s: %s", want, out)
 		}

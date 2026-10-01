@@ -9,6 +9,7 @@ import (
 )
 
 func TestLoadComparePoint_BareFindings(t *testing.T) {
+	withCatalog(t, map[string]scan.PrecisionInfo{"empty-test": scan.Measured(24, 25)})
 	dir := t.TempDir()
 	path := filepath.Join(dir, "prev.json")
 	body := `[
@@ -23,28 +24,25 @@ func TestLoadComparePoint_BareFindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// empty-test only (weak-assert 0.25, parse-error excluded); 2 unique files
-	if cp.ConfirmedCount != 1 {
-		t.Fatalf("count=%d, want 1", cp.ConfirmedCount)
+	// empty-test only (actionable); weak-assert is low, parse-error excluded.
+	if cp.ActionableCount != 1 {
+		t.Fatalf("count=%d, want 1", cp.ActionableCount)
 	}
-	want := scan.ConfirmedDensity(1, 2)
-	if cp.ConfirmedDensity != want {
-		t.Fatalf("density=%v, want %v", cp.ConfirmedDensity, want)
+	if cp.ActionableDensity >= 0 || !cp.Legacy {
+		t.Fatalf("bare array must be a legacy point with unknown density: %+v", cp)
 	}
 }
 
-func TestLoadComparePoint_WrapperRecompute(t *testing.T) {
+func TestLoadComparePoint_NewSummary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "prev.json")
 	body := `{
   "summary": {
-    "health_score": 80, "grade": "B",
-    "confirmed_count": 99, "confirmed_density": 9.9,
-    "errors": 1, "warnings": 0, "notes": 0, "files": 9
+    "actionable_count": 7, "actionable_per_100_tests": 0.19,
+    "confirmed_count": 99, "confirmed_density": 9.9, "tests": 3650, "files": 9
   },
   "findings": [
-    {"file":"a.py","line":1,"rule":"empty-test","severity":"error","message":"m"},
-    {"file":"a.py","line":2,"rule":"empty-test","severity":"error","message":"m2"}
+    {"file":"a.py","line":1,"rule":"empty-test","severity":"error","message":"m"}
   ]
 }`
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -54,17 +52,13 @@ func TestLoadComparePoint_WrapperRecompute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Non-empty findings → recompute (ignore stale summary confirmed_*)
-	if cp.ConfirmedCount != 2 {
-		t.Fatalf("count=%d, want 2", cp.ConfirmedCount)
-	}
-	want := scan.ConfirmedDensity(2, 9)
-	if cp.ConfirmedDensity != want {
-		t.Fatalf("density=%v, want %v", cp.ConfirmedDensity, want)
+	// The summary wins over findings and the deprecated confirmed_* keys.
+	if cp.ActionableCount != 7 || cp.ActionableDensity != 0.19 || cp.Legacy {
+		t.Fatalf("got %+v", cp)
 	}
 }
 
-func TestLoadComparePoint_WrapperSummaryOnly(t *testing.T) {
+func TestLoadComparePoint_LegacyConfirmedFallback(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "prev.json")
 	body := `{
@@ -82,8 +76,13 @@ func TestLoadComparePoint_WrapperSummaryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cp.ConfirmedCount != 4 || cp.ConfirmedDensity != 1.25 {
+	if cp.ActionableCount != 4 || cp.ActionableDensity >= 0 || !cp.Legacy {
 		t.Fatalf("got %+v", cp)
+	}
+	// A legacy point is compared on count only (density units differ).
+	tr := scan.ComputeTrend(4, 3.0, cp.ActionableCount, cp.ActionableDensity)
+	if tr.Direction != "unchanged" || tr.DeltaDensity != 0 {
+		t.Fatalf("trend=%+v", tr)
 	}
 }
 

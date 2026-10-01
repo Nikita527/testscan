@@ -9,8 +9,17 @@ import (
 type JSONSummary struct {
 	HealthScore int    `json:"health_score"`
 	Grade       string `json:"grade"`
-	// GradeDeprecated is always true; prefer confirmed_* over health_score/grade.
-	GradeDeprecated  bool    `json:"grade_deprecated"`
+	// GradeDeprecated is always true; health_score/grade are removed from text and
+	// HTML and will be dropped from JSON in a future release.
+	GradeDeprecated bool `json:"grade_deprecated"`
+	// ActionableCount / ActionableDensity (per 100 tests) are the primary metrics.
+	ActionableCount  int     `json:"actionable_count"`
+	ActionablePer100 float64 `json:"actionable_per_100_tests"`
+	ProvisionalCount int     `json:"provisional_count"`
+	ShownCount       int     `json:"shown_count"`
+	Tests            int     `json:"tests"`
+	// Deprecated: ConfirmedCount equals actionable_count, ConfirmedDensity equals
+	// actionable_per_100_tests. Kept for one release; will be removed.
 	ConfirmedCount   int     `json:"confirmed_count"`
 	ConfirmedDensity float64 `json:"confirmed_density"`
 	Trend            *Trend  `json:"trend,omitempty"`
@@ -36,8 +45,7 @@ func WriteJSON(w io.Writer, findings []Finding, score Score) error {
 	if findings == nil {
 		findings = []Finding{}
 	}
-	out := make([]Finding, len(findings))
-	copy(out, findings)
+	out := AnnotateTiers(findings)
 	for i := range out {
 		out[i].Snippet = ""
 	}
@@ -46,8 +54,13 @@ func WriteJSON(w io.Writer, findings []Finding, score Score) error {
 			HealthScore:      score.Value,
 			Grade:            score.Grade,
 			GradeDeprecated:  true,
-			ConfirmedCount:   score.ConfirmedCount,
-			ConfirmedDensity: score.ConfirmedDensity,
+			ActionableCount:  score.ActionableCount,
+			ActionablePer100: score.ActionableDensity,
+			ProvisionalCount: score.ProvisionalCount,
+			ShownCount:       score.ShownCount,
+			Tests:            score.Tests,
+			ConfirmedCount:   score.ActionableCount,
+			ConfirmedDensity: score.ActionableDensity,
 			Trend:            score.Trend,
 			Errors:           score.Errors,
 			Warnings:         score.Warnings,

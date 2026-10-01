@@ -93,7 +93,7 @@ func TestComputePrecision(t *testing.T) {
 	}
 }
 
-func TestUnknownRuleNotConfirmed(t *testing.T) {
+func TestUnknownRuleNotActionable(t *testing.T) {
 	info, ok := scan.LookupPrecision("definitely-not-a-rule")
 	if ok || info.Precision != 0 || info.Source != "estimated" {
 		t.Fatalf("unknown lookup = %+v, %v", info, ok)
@@ -102,10 +102,10 @@ func TestUnknownRuleNotConfirmed(t *testing.T) {
 		t.Fatalf("weight=%v, want 0", w)
 	}
 	f := []scan.Finding{{Rule: "definitely-not-a-rule", Severity: "error", File: "a.py", Line: 1}}
-	if n := scan.CountConfirmed(f); n != 0 {
-		t.Fatalf("confirmed=%d, want 0", n)
+	if n := scan.CountActionable(f); n != 0 {
+		t.Fatalf("actionable=%d, want 0", n)
 	}
-	if got := scan.FilterLowPrecision(f); len(got) != 0 {
+	if got := scan.FilterTiers(f); len(got) != 0 {
 		t.Fatalf("unknown rule must be filtered by default: %+v", got)
 	}
 	if info, ok := scan.LookupPrecision("empty-test"); !ok || info.Precision != 1 || info.Source != "estimated" {

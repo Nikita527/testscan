@@ -13,8 +13,9 @@ import (
 )
 
 // WriteHTML encodes findings as a self-contained interactive HTML report
-// with confirmed metrics in the hero, by-file default grouping, vscode links,
-// and optional Health Score ring when ShowGrade is set.
+// with a single headline number (actionable count) and trend in the hero,
+// by-file default grouping, vscode links, per-rule precision/tier badges and
+// TP/FP labelling. There is no Health Score / grade in HTML.
 func WriteHTML(w io.Writer, findings []Finding, score Score) error {
 	byRule := groupByRule(findings)
 	ruleIDs := sortedRuleIDs(byRule)
@@ -32,22 +33,15 @@ func WriteHTML(w io.Writer, findings []Finding, score Score) error {
 	b.WriteString("<div class=\"hero-brand\">\n")
 	b.WriteString("<p class=\"brand\">testscan</p>\n")
 	b.WriteString("<h1>Findings report</h1>\n")
-	subParts := fmt.Sprintf("%d finding(s) · %d error · %d warning · %d note",
-		len(findings), score.Errors, score.Warnings, score.Notes)
-	if score.ParseSkipped > 0 {
-		subParts += fmt.Sprintf(" · %d tool error", score.ParseSkipped)
-	}
-	subParts += fmt.Sprintf(" · %d file(s)", score.Files)
-	fmt.Fprintf(&b, "<p class=\"sub\">%s</p>\n", subParts)
 	b.WriteString("<div class=\"label-tools\">\n")
 	b.WriteString("<button type=\"button\" id=\"export-labels\" class=\"export-btn\" title=\"Download labels.json for testscan precision\">Export labels</button>\n")
 	b.WriteString("<span id=\"label-count\" class=\"label-count\">labeled: 0</span>\n")
 	b.WriteString("</div>\n")
 	b.WriteString("</div>\n")
-	writeConfirmedHero(&b, score)
+	writeHeroMain(&b, score)
 	b.WriteString("</div>\n")
-	writeConfirmedCaption(&b, score)
-	b.WriteString("<p class=\"signal-caption\">Findings with rule precision &lt; 0.3 are omitted by default (--show-low-precision to include). Notes filter still applies to lower-signal heuristics that remain in the report.</p>\n")
+	writeHeroSecondary(&b, score)
+	writeDisplayCaption(&b, score)
 	b.WriteString("<div class=\"sev-breakdown\" aria-label=\"Severity breakdown\">\n")
 	fmt.Fprintf(&b, "<span class=\"chip chip-error\"><strong>%d</strong> error</span>\n", score.Errors)
 	fmt.Fprintf(&b, "<span class=\"chip chip-warning\"><strong>%d</strong> warning</span>\n", score.Warnings)
@@ -150,6 +144,10 @@ type collapsedFinding struct {
 	Finding
 	Count int
 	Lines []int
+	// Fingerprints / FPLines list every grouped finding that has a fingerprint
+	// (parallel slices), so one TP/FP click labels the whole "xN" group.
+	Fingerprints []string
+	FPLines      []int
 }
 
 func collapseByMessage(items []Finding) []collapsedFinding {
@@ -169,9 +167,17 @@ func collapseByMessage(items []Finding) []collapsedFinding {
 		if g, ok := groups[key]; ok {
 			g.Count++
 			g.Lines = append(g.Lines, f.Line)
+			if f.Fingerprint != "" {
+				g.Fingerprints = append(g.Fingerprints, f.Fingerprint)
+				g.FPLines = append(g.FPLines, f.Line)
+			}
 			continue
 		}
 		cf := &collapsedFinding{Finding: f, Count: 1, Lines: []int{f.Line}}
+		if f.Fingerprint != "" {
+			cf.Fingerprints = []string{f.Fingerprint}
+			cf.FPLines = []int{f.Line}
+		}
 		groups[key] = cf
 		order = append(order, key)
 	}
@@ -222,27 +228,34 @@ func writeFindingList(b *strings.Builder, items []collapsedFinding, pathRoot str
 			ruleAttr = fmt.Sprintf(` <span class="rule-id">%s</span>`, html.EscapeString(f.Rule))
 		}
 		labelHTML := ""
-		if f.Fingerprint != "" {
-			labelHTML = fmt.Sprintf(` <span class="lbl" data-fp="%s" data-rule="%s" data-path="%s" data-line="%d">`+
+		if len(cf.Fingerprints) > 0 {
+			lines := make([]string, len(cf.FPLines))
+			for i, ln := range cf.FPLines {
+				lines[i] = strconv.Itoa(ln)
+			}
+			labelHTML = fmt.Sprintf(` <span class="lbl" data-fp="%s" data-fps="%s" data-lines="%s" data-rule="%s" data-path="%s" data-line="%d">`+
 				`<button type="button" class="lbl-btn lbl-tp" data-label="tp" aria-pressed="false" title="Mark true positive">TP</button>`+
 				`<button type="button" class="lbl-btn lbl-fp" data-label="fp" aria-pressed="false" title="Mark false positive">FP</button></span>`,
-				html.EscapeString(f.Fingerprint), html.EscapeString(f.Rule),
-				html.EscapeString(f.File), f.Line)
+				html.EscapeString(cf.Fingerprints[0]),
+				html.EscapeString(strings.Join(cf.Fingerprints, ",")),
+				strings.Join(lines, ","),
+				html.EscapeString(f.Rule), html.EscapeString(f.File), cf.FPLines[0])
 		}
+		tierHTML := tierBadgeHTML(f.Rule)
 		locHTML := fmt.Sprintf(`<a class="loc" href="%s">:%d</a>`,
 			html.EscapeString(vscodeFileURL(pathRoot, f.File, f.Line)), f.Line)
 		fmt.Fprintf(b,
 			"<li class=\"finding\" data-sev=\"%s\" data-rule=\"%s\" data-file=\"%s\" data-msg=\"%s\">"+
 				"<span class=\"sev sev-%s\">%s</span> "+
 				"%s"+
-				"<span class=\"msg\">%s%s%s%s%s</span>%s</li>\n",
+				"<span class=\"msg\">%s%s%s%s%s%s</span>%s</li>\n",
 			sev,
 			html.EscapeString(f.Rule),
 			html.EscapeString(strings.ToLower(f.File)),
 			html.EscapeString(strings.ToLower(f.Message)),
 			sev, html.EscapeString(displaySevLabel(f, sev)),
 			locHTML,
-			msgHTML, badge, related, ruleAttr, labelHTML, snippet,
+			msgHTML, badge, related, ruleAttr, tierHTML, labelHTML, snippet,
 		)
 	}
 	b.WriteString("</ul>\n")
@@ -304,66 +317,86 @@ func rulePrecisionDisplay(ruleID string) float64 {
 	return RulePrecisionValue(ruleID)
 }
 
-func writeConfirmedHero(b *strings.Builder, score Score) {
-	b.WriteString("<div class=\"confirmed-hero\">\n")
-	fmt.Fprintf(b, "<div class=\"confirmed-primary\" title=\"Confirmed findings (precision ≥ %.2f)\">\n", MinPrecisionForDisplay)
-	fmt.Fprintf(b, "<span class=\"confirmed-count\">%d</span>\n", score.ConfirmedCount)
-	b.WriteString("<span class=\"confirmed-label\">confirmed</span>\n")
-	fmt.Fprintf(b, "<span class=\"confirmed-density\">density %.2f</span>\n", score.ConfirmedDensity)
+// precisionText renders a rule's catalog precision, e.g. "p=0.85 n=24 measured"
+// or "estimated".
+func precisionText(info PrecisionInfo) string {
+	if info.Source == SourceMeasured {
+		return fmt.Sprintf("p=%.2f n=%d measured", info.Precision, info.N)
+	}
+	return "estimated"
+}
+
+// tierBadgeHTML renders the tier badge (provisional/low) and the rule precision.
+func tierBadgeHTML(ruleID string) string {
+	if ruleID == "parse-error" {
+		return ""
+	}
+	info, _ := LookupPrecision(ruleID)
+	out := ""
+	switch info.Tier() {
+	case TierProvisional:
+		out += ` <span class="tier tier-provisional" title="Measured precision is promising but the sample is small">provisional</span>`
+	case TierLow:
+		out += ` <span class="tier tier-low" title="Rule precision is estimated or below the provisional bar">low precision</span>`
+	}
+	out += fmt.Sprintf(` <span class="prec-info" title="Rule precision (labelled findings)">%s</span>`,
+		html.EscapeString(precisionText(info)))
+	return out
+}
+
+// writeHeroMain writes the single headline number (actionable count) + density + trend.
+func writeHeroMain(b *strings.Builder, score Score) {
+	b.WriteString("<div class=\"hero-main\">\n")
+	b.WriteString("<div class=\"actionable-primary\" title=\"Findings from rules with measured, high precision\">\n")
+	fmt.Fprintf(b, "<span class=\"actionable-count\">%d</span>\n", score.ActionableCount)
+	b.WriteString("<span class=\"actionable-label\">actionable</span>\n")
+	if score.Tests > 0 {
+		fmt.Fprintf(b, "<span class=\"actionable-density\">%.2f per 100 tests</span>\n", score.ActionableDensity)
+	}
 	if score.Trend != nil {
 		label := fmt.Sprintf("trend %s (Δ %d)", score.Trend.Direction, score.Trend.DeltaCount)
 		title := "Trend vs --compare / --baseline"
 		if score.Trend.CurrentPreBaseline {
 			label += " · pre-baseline"
-			title = "Trend current side is pre-baseline confirmed (emitted confirmed count stays post-baseline)"
+			title = "Trend current side is pre-baseline (the actionable count above is post-baseline)"
 		}
 		fmt.Fprintf(b, "<span class=\"trend trend-%s\" title=\"%s\">%s</span>\n",
 			html.EscapeString(score.Trend.Direction),
 			html.EscapeString(title),
 			html.EscapeString(label))
 	}
-	b.WriteString("</div>\n")
-	if score.ShowGrade {
-		writeScoreHero(b, score)
+	b.WriteString("</div>\n</div>\n")
+}
+
+// writeHeroSecondary writes the small provisional / tests-scanned line.
+func writeHeroSecondary(b *strings.Builder, score Score) {
+	line := fmt.Sprintf("%d provisional", score.ProvisionalCount)
+	if score.Tests > 0 {
+		line += fmt.Sprintf(" · %d tests in %d files", score.Tests, score.Files)
 	} else {
-		fmt.Fprintf(b, "<div class=\"grade-muted\" title=\"Health Score (deprecated)\">grade %s · %d <span class=\"deprecated-tag\">deprecated</span></div>\n",
-			html.EscapeString(score.Grade), score.Value)
+		line += fmt.Sprintf(" · %d files", score.Files)
 	}
-	b.WriteString("</div>\n")
+	if score.ParseSkipped > 0 {
+		line += fmt.Sprintf(" · %d tool error", score.ParseSkipped)
+	}
+	fmt.Fprintf(b, "<p class=\"hero-secondary\">%s</p>\n", html.EscapeString(line))
 }
 
-func writeScoreHero(b *strings.Builder, score Score) {
-	pct := score.Value
-	if pct < 0 {
-		pct = 0
+// writeDisplayCaption states which findings this report includes.
+func writeDisplayCaption(b *strings.Builder, score Score) {
+	var msg string
+	switch {
+	case score.ShowAll:
+		msg = "Showing all findings (--all): every severity and precision tier. Only actionable findings count toward the headline number."
+	case score.ShowLow:
+		msg = "Showing actionable, provisional and low-precision findings (--show-low-precision); errors and warnings only (focus)."
+	default:
+		msg = "Showing actionable and provisional findings only (errors and warnings from rules with measured precision). Use --all for everything, --show-low-precision to add estimated rules."
 	}
-	if pct > 100 {
-		pct = 100
-	}
-	grade := html.EscapeString(score.Grade)
-	fmt.Fprintf(b, "<div class=\"score\" data-grade=\"%s\" title=\"Health Score (deprecated, precision-weighted)\">\n", grade)
-	b.WriteString("<svg viewBox=\"0 0 36 36\" aria-hidden=\"true\">\n")
-	b.WriteString("<path class=\"ring-bg\" d=\"M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831\"/>\n")
-	fmt.Fprintf(b, "<path class=\"ring-fg\" stroke-dasharray=\"%d, 100\" d=\"M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831\"/>\n", pct)
-	b.WriteString("</svg>\n")
-	fmt.Fprintf(b, "<div class=\"score-label\"><span class=\"score-value\">%d</span><span class=\"score-grade\">%s</span></div>\n",
-		score.Value, grade)
-	b.WriteString("</div>\n")
-}
-
-func writeConfirmedCaption(b *strings.Builder, score Score) {
-	b.WriteString("<p class=\"score-caption\">")
-	b.WriteString("Confirmed density is high-precision findings over scanned files (precision ≥ 0.30). Health Score grade is deprecated.")
 	if score.Trend != nil && score.Trend.CurrentPreBaseline {
-		b.WriteString(" Trend compares pre-baseline confirmed metrics; the confirmed count above is post-baseline (new issues only).")
+		msg += " Trend compares pre-baseline metrics; the headline count is post-baseline (new issues only)."
 	}
-	if score.WarningsIgnored > 0 {
-		fmt.Fprintf(b, " %d of %d warning(s) excluded from legacy grade (low-precision rules).",
-			score.WarningsIgnored, score.Warnings)
-	} else if score.WarningsInGrade > 0 {
-		fmt.Fprintf(b, " %d warning(s) counted toward legacy grade.", score.WarningsInGrade)
-	}
-	b.WriteString("</p>\n")
+	fmt.Fprintf(b, "<p class=\"signal-caption\">%s</p>\n", html.EscapeString(msg))
 }
 
 func groupByRule(findings []Finding) map[string][]Finding {
@@ -480,33 +513,39 @@ body {
 }
 .hero h1 { margin: .35rem 0 .5rem; font-size: 1.75rem; font-weight: 600; }
 .sub { margin: 0; color: var(--muted); }
-.confirmed-hero {
+.hero-main {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 1.25rem 1.75rem;
 }
-.confirmed-primary {
+.actionable-primary {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   line-height: 1.15;
 }
-.confirmed-count {
+.actionable-count {
   font-size: 2.4rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.confirmed-label {
+.actionable-label {
   font-size: .8rem;
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--accent);
   font-weight: 600;
 }
-.confirmed-density {
+.actionable-density {
   margin-top: .35rem;
   font-size: .9rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hero-secondary {
+  margin: .6rem 0 0;
+  font-size: .8rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -518,79 +557,11 @@ body {
 .trend-improved { color: var(--accent); }
 .trend-worsened { color: var(--error); }
 .trend-unchanged { color: var(--muted); }
-.grade-muted {
-  font-size: .78rem;
-  color: var(--muted);
-  opacity: .75;
-}
-.deprecated-tag {
-  font-size: .68rem;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  opacity: .7;
-}
-.score-caption {
-  margin: .85rem 0 0;
-  max-width: 40rem;
-  font-size: .82rem;
-  line-height: 1.45;
-  color: var(--muted);
-}
 .signal-caption {
   margin: .45rem 0 0;
   max-width: 40rem;
   font-size: .82rem;
   line-height: 1.45;
-  color: var(--muted);
-}
-.score {
-  position: relative;
-  width: 5.5rem;
-  height: 5.5rem;
-  flex: 0 0 auto;
-  opacity: .85;
-}
-.score svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-.ring-bg {
-  fill: none;
-  stroke: var(--border);
-  stroke-width: 2.8;
-}
-.ring-fg {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.8;
-  stroke-linecap: round;
-  transition: stroke-dasharray .4s ease;
-}
-.score[data-grade="A"] .ring-fg { stroke: var(--accent); }
-.score[data-grade="B"] .ring-fg { stroke: #4aaf8a; }
-.score[data-grade="C"] .ring-fg { stroke: var(--warning); }
-.score[data-grade="D"] .ring-fg { stroke: #d4783a; }
-.score[data-grade="F"] .ring-fg { stroke: var(--error); }
-.score-label {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  line-height: 1.1;
-}
-.score-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.score-grade {
-  font-size: .75rem;
-  font-weight: 600;
-  letter-spacing: .08em;
   color: var(--muted);
 }
 .sev-breakdown {
@@ -754,6 +725,16 @@ main { padding: 1.25rem 1.5rem 3rem; max-width: 72rem; }
   background: rgba(61,154,120,.15);
   color: var(--accent);
 }
+.tier, .prec-info {
+  display: inline-block;
+  margin-left: .35rem;
+  font-size: .72rem;
+  padding: .05rem .4rem;
+  border-radius: 999px;
+}
+.tier-provisional { background: rgba(212,160,23,.15); color: var(--warning); }
+.tier-low { background: rgba(139,154,171,.12); color: var(--muted); }
+.prec-info { font-family: var(--mono); color: var(--muted); }
 .rule-id {
   display: inline-block;
   margin-left: .45rem;
@@ -880,9 +861,9 @@ const htmlJS = `
   }
   function renderLabels() {
     document.querySelectorAll('.lbl').forEach(span => {
-      const cur = labels[span.dataset.fp];
+      const items = groupFps(span);
       span.querySelectorAll('.lbl-btn').forEach(btn => {
-        const on = !!cur && cur.label === btn.dataset.label;
+        const on = items.length > 0 && items.every(it => labels[it.fp] && labels[it.fp].label === btn.dataset.label);
         btn.classList.toggle('is-active', on);
         btn.setAttribute('aria-pressed', on ? 'true' : 'false');
       });
@@ -890,19 +871,30 @@ const htmlJS = `
     const counter = document.getElementById('label-count');
     if (counter) counter.textContent = 'labeled: ' + Object.keys(labels).length;
   }
+  function groupFps(span) {
+    const fps = (span.dataset.fps || span.dataset.fp || '').split(',').filter(Boolean);
+    const lines = (span.dataset.lines || '').split(',');
+    return fps.map((fp, i) => ({
+      fp: fp,
+      line: parseInt(lines[i] !== undefined && lines[i] !== '' ? lines[i] : span.dataset.line, 10) || 0
+    }));
+  }
   function toggleLabel(span, value) {
-    const fp = span.dataset.fp;
-    if (labels[fp] && labels[fp].label === value) {
-      delete labels[fp];
-    } else {
-      labels[fp] = {
-        fingerprint: fp,
-        rule: span.dataset.rule,
-        file: span.dataset.path,
-        line: parseInt(span.dataset.line, 10) || 0,
-        label: value
-      };
-    }
+    const items = groupFps(span);
+    const allSet = items.length > 0 && items.every(it => labels[it.fp] && labels[it.fp].label === value);
+    items.forEach(it => {
+      if (allSet) {
+        delete labels[it.fp];
+      } else {
+        labels[it.fp] = {
+          fingerprint: it.fp,
+          rule: span.dataset.rule,
+          file: span.dataset.path,
+          line: it.line,
+          label: value
+        };
+      }
+    });
     saveLabels();
     renderLabels();
   }

@@ -33,18 +33,18 @@ uvx testscan@latest tests/
 
 ```bash
 # Ежедневно / PR — изменённые тесты, только высокий сигнал
-testscan tests --diff origin/main --focus --format html --open
+testscan tests --diff origin/main --format html --open
 
 # Снять/обновить baseline шума на всём репо, затем гейт на PR
 testscan tests --format json --fail-on never > .testscan/baseline.json
-testscan tests --diff origin/main --baseline .testscan/baseline.json --focus --fail-on warning
+testscan tests --diff origin/main --baseline .testscan/baseline.json --fail-on warning
 
 # Тренд vs вчерашний JSON (или --baseline как точка сравнения)
 testscan tests --format json -o .testscan/prev.json --fail-on never
 testscan tests --compare .testscan/prev.json --format text
 
-# Полный скан без --focus (триаж низкоточных эвристик / notes)
-testscan path/to/tests --format html --open
+# Всё: без focus, все тиры точности (триаж низкоточных эвристик / notes)
+testscan path/to/tests --all --format html --open
 
 # Opt-in project-rules (DRF / API)
 testscan tests --enable error-contract-assert --enable raises-without-check
@@ -93,8 +93,8 @@ time ./testscan.exe /c/Dev/mp-be/tests --fail-on never >/dev/null
 ```
 
 Флаги:
-- `--format text|json|sarif|html|codequality` (default: `text`) — `html` — самодостаточный отчёт (в hero: confirmed density + trend; кольцо Health Score по `--show-grade`; фильтры **error / warning / note / tool error**; поиск; по умолчанию **файл → находки**, переключатель By rule; ссылки `vscode://file/…:line`; повторы `×N`; фрагменты ±5 строк; twin у near-duplicate). Notes и tool errors по умолчанию сняты. `codequality` — GitLab Code Quality. Пишите через `-o`/`--output` или stdout.
-- `text` заканчивается `Confirmed: N (density X.XX)` (+ trend); `json` = `{"summary":{confirmed_count,confirmed_density,trend?,health_score,grade,grade_deprecated,…},"findings":[…]}`. **Confirmed** — precision ≥ `MinPrecisionForDisplay` (0.3) после baseline / display-фильтра. **Health Score** (A–F) **deprecated** как основной сигнал — в JSON с `grade_deprecated: true`; в text/HTML — `--show-grade`. **`parse-error`** — tool errors (`parse_skipped`), не влияют на confirmed/grade.
+- `--format text|json|sarif|html|codequality` (default: `text`) — `html` — самодостаточный отчёт (в hero одно главное число: **actionable** + trend; мелкая строка с числом provisional и просканированных тестов; бейдж тира и precision правила у каждой находки; кнопки TP/FP; фильтры **error / warning / note / tool error**; поиск; по умолчанию **файл → находки**, переключатель By rule; ссылки `vscode://file/…:line`; повторы `×N` — один клик TP/FP размечает всю группу; фрагменты ±5 строк; twin у near-duplicate). Notes и tool errors по умолчанию сняты. `codequality` — GitLab Code Quality. Пишите через `-o`/`--output` или stdout.
+- `text` начинается одной строкой-заголовком, например `testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files` (+ ` · trend improved (Δ -2)` при сравнении), затем по строке на находку; provisional помечены `[provisional]`. `json` = `{"summary":{actionable_count,actionable_per_100_tests,provisional_count,shown_count,tests,files,trend?,errors,warnings,notes,parse_skipped,warnings_in_grade,warnings_ignored,health_score,grade,grade_deprecated,confirmed_count,confirmed_density},"findings":[…]}`; у каждой находки добавлены `tier` (`actionable|provisional|low`) и `precision` (`{value,n,source,wilson_lower}`) — аддитивные поля. `confirmed_count` / `confirmed_density` — **deprecated** синонимы `actionable_count` / `actionable_per_100_tests` (оставлены на один релиз); `health_score` / `grade` — **deprecated** (`grade_deprecated: true`), в text и HTML больше не выводятся. **`parse-error`** — tool errors (`parse_skipped`), не считаются ни actionable, ни provisional.
 - `-o` / `--output PATH` — записать отчёт в файл
 - `--open` — открыть HTML в браузере; без `-o` пишет в `.testscan/reports/report_<timestamp>.html` и создаёт локальный `.gitignore`
 - `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`. **Migration:** demoted-правила и `wall-clock-in-test` по умолчанию **note**, поэтому `--fail-on warning` на них больше не падает.
@@ -102,15 +102,49 @@ time ./testscan.exe /c/Dev/mp-be/tests --fail-on never >/dev/null
 - `--enable ID` — включить opt-in Optional-правила; объединяется с `enable` из конфига
 - `--disable ID` — выключить правило(а); объединяется с `disable` из конфига
 - одно и то же ID в `--rule`/`--enable` и `--disable` → ошибка, exit `2`
-- `--baseline path.json` — подавить findings по fingerprint; также точка тренда, если нет `--compare`. При наличии baseline тренд **current** считается по pre-baseline confirmed (большой baseline не может нарисовать ложный `improved` vs `--compare`); в summary `confirmed_*` остаются post-baseline.
-- `--compare path.json` — тренд confirmed vs предыдущий JSON-отчёт
-- `--show-grade` — показать deprecated Health Score / полное кольцо в HTML
-- `--show-low-precision` — эмитить findings с precision &lt; 0.3 (по умолчанию отбрасываются)
+- `--baseline path.json` — подавить findings по fingerprint; также точка тренда, если нет `--compare`. При наличии baseline тренд **current** считается по pre-baseline actionable (большой baseline не может нарисовать ложный `improved` vs `--compare`); в summary `actionable_*` остаются post-baseline.
+- `--compare path.json` — тренд actionable (число и плотность) vs предыдущий JSON-отчёт. Отчёты до 0.5 содержат только `confirmed_*`: они читаются как точка сравнения только по числу (единицы плотности другие), поэтому первый тренд после обновления приблизителен.
+- `--all` — показать всё: отключает focus-фильтр **и** показывает все тиры точности (и notes / tool errors). Это прежний полный вывод до 0.5. Конфиг: `all = true`.
+- `--show-grade` — **deprecated, ничего не делает** (предупреждение в stderr). Health Score / оценка A–F больше не выводятся в text и HTML; JSON по-прежнему содержит `health_score`, `grade`, `grade_deprecated: true`.
+- `--show-low-precision` — дополнительно показать находки **low**-тира (estimated / не измеренные / ниже порога provisional), focus-фильтр остаётся (по умолчанию скрыты). Конфиг: `show-low-precision = true`.
 - `--diff <base-ref>` — только изменённые/добавленные тестовые файлы с `base-ref`
-- `--focus` — после baseline оставить error/warning с precision ≥ 0.15; порядок: scan → baseline → focus → low-precision filter → score → emit
+- `--focus` — **deprecated, ничего не делает** (предупреждение в stderr): focus-фильтр теперь включён по умолчанию. Он оставляет error/warning с весом precision ≥ 0.15 и убирает `note`, `parse-error`, правила с нулевой точностью и набор демотированных эвристик. `--all` отключает его. Порядок: scan → baseline → focus → фильтр по тирам → score (+ trend) → emit.
 - `--workers N` — параллельные проверки (`0` → `runtime.NumCPU()`)
 
-**Уже есть для CI:** `--diff` + `--baseline` + `--focus` + `codequality`/`sarif`/`json`. Новое: `--enable`, `--compare`, `--show-low-precision`, `--show-grade`.
+**Уже есть для CI:** `--diff` + `--baseline` + `codequality`/`sarif`/`json`. Ручки: `--enable`, `--compare`, `--show-low-precision`, `--all`. Exit code (`--fail-on`), SARIF и Code Quality считаются по **показанным** находкам (после baseline и display-фильтров): в виде по умолчанию билд могут валить только actionable/provisional правила; для гейта по всему используйте `--all`.
+
+### Тиры точности, плотность и разметка
+
+testscan доверяет только правилам, у которых точность **измерена** на размеченных находках. Каждое правило попадает в один тир (пороги — экспортируемые константы в `scan/score.go`):
+
+| Тир | Условие | Показывается по умолчанию |
+|-----|---------|---------------------------|
+| **actionable** | измерено, нижняя граница Вильсона 95% ≥ `ActionableMinWilson` (0.7) и N ≥ `ActionableMinN` (20) | да — считается в главном числе |
+| **provisional** | измерено, precision ≥ `ProvisionalMinPrecision` (0.8) и N ≥ `ProvisionalMinN` (5), но не actionable | да — тег `[provisional]` / бейдж |
+| **low** | всё остальное: estimated, не измерено, неизвестное правило или ниже порогов | нет (`--show-low-precision` или `--all`) |
+
+N — число размеченных TP + FP правила. Правила без измеренных данных (в том числе все, что в каталоге только *estimated*) — **low**.
+
+**Плотность** — actionable-находки на **100 тестов** (тест-функции и методы классов из AST): `0.19 per 100 tests`. При 0 тестов (или если ни одному выбранному правилу не нужен AST) плотность `0`.
+
+**Вид по умолчанию** = focus-фильтр + тиры actionable и provisional. `--show-low-precision` добавляет low, `--all` снимает все фильтры.
+
+**Измеренная точность.** Разметьте находки и посчитайте точность по правилам:
+
+1. Сделайте HTML-отчёт (`testscan tests --all --format html -o report.html`) и пометьте находки кнопками **TP** / **FP** (строка со свёрнутым `×N` размечает все находки группы; состояние хранится в localStorage браузера). **Export labels** скачивает `labels.json`.
+2. `labels.json` (обычно `.testscan/labels.json`) — JSON-массив; для одного fingerprint побеждает последняя запись:
+
+   ```json
+   [
+     {"fingerprint": "9d17e1409e5c531b81c3858012540f41", "rule": "empty-test",
+      "file": "tests/test_a.py", "line": 12, "label": "tp", "note": "optional"}
+   ]
+   ```
+
+   `label` — `tp`, `fp` или `skip` (skip в статистике не учитывается).
+3. `testscan precision --labels .testscan/labels.json [--report out.json] [--format text|json]` выводит по правилам `N`, `TP`, `FP`, precision и нижнюю границу Вильсона 95%. С `--report` (JSON из `--format json`) учитываются только метки, чьи fingerprint есть в этом отчёте.
+4. Перенесите измеренные значения в каталог (`scan.RulePrecision`, например `scan.Measured(tp, n)`) — тир выводится из них.
+
 
 ### pre-commit
 
@@ -145,7 +179,8 @@ exclude = ["**/conftest.py"]
 assert-helpers = ["assert_*", "check_*"]
 python-files = ["test_*.py", "*_test.py"]
 respect-gitignore = true
-# show-low-precision = true
+# show-low-precision = true  # показать и low-тир (estimated / не измеренные правила); focus остаётся
+# all = true                 # показать всё (как --all): без focus, все тиры
 
 [rules.only-happy-path]
 severity = "note"
@@ -195,7 +230,7 @@ baseline, err := scan.LoadBaseline("baseline.json")
 findings = scan.FilterBaseline(findings, baseline).Findings
 ```
 
-`scan.Options.Workers` — размер пула для `Check` по файлам (Walk последовательный). Health Score не заменяет `--fail-on` (exit code по severity).
+`scan.Options.Workers` — размер пула для `Check` по файлам (Walk последовательный). Exit code по severity (`--fail-on`) и считается по показанным находкам.
 
 ## AST-helper (`internal/parse`)
 

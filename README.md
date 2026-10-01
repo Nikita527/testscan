@@ -35,18 +35,18 @@ uvx testscan@latest tests/
 
 ```bash
 # Daily / PR — changed tests, high-signal only
-testscan tests --diff origin/main --focus --format html --open
+testscan tests --diff origin/main --format html --open
 
 # Snapshot or refresh baseline noise on the whole tree, then gate the PR
 testscan tests --format json --fail-on never > .testscan/baseline.json
-testscan tests --diff origin/main --baseline .testscan/baseline.json --focus --fail-on warning
+testscan tests --diff origin/main --baseline .testscan/baseline.json --fail-on warning
 
 # Trend vs yesterday’s JSON (or use --baseline alone as the compare point)
 testscan tests --format json -o .testscan/prev.json --fail-on never
 testscan tests --compare .testscan/prev.json --format text
 
-# Full scan without --focus (triage low-precision heuristics / notes)
-testscan path/to/tests --format html --open
+# Everything: no focus filter, every precision tier (triage low-precision heuristics / notes)
+testscan path/to/tests --all --format html --open
 
 # Opt-in project rules (DRF / API-style)
 testscan tests --enable error-contract-assert --enable raises-without-check
@@ -84,8 +84,8 @@ Go remains the source of truth; Python only locates the binary and forwards argv
 
 ### Flags
 
-- `--format text|json|sarif|html|codequality` (default: `text`) — `html` is a self-contained interactive report (confirmed density + trend in the hero; optional Health Score ring with `--show-grade`; filters for **error / warning / note / tool error**; search; default grouping **file → findings**, toggle By rule; `vscode://file/…:line` links; repeated messages as `×N`; code snippets ±5 lines; near-duplicate twin links). Notes and tool errors are unchecked by default. `codequality` is GitLab Code Quality (Code Climate JSON). Write with `-o`/`--output`, or redirect stdout (`> report.html`).
-- `text` ends with `Confirmed: N (density X.XX)` and optional trend; `json` is `{"summary":{confirmed_count,confirmed_density,trend?,health_score,grade,grade_deprecated,errors,warnings,notes,files,parse_skipped,warnings_in_grade,warnings_ignored},"findings":[…]}` (breaking vs a bare array — use `findings` for baselines / CI parsers). **Confirmed** findings have rule precision ≥ `MinPrecisionForDisplay` (0.3) after baseline / display filter. **Health Score** (precision-weighted error+warning; floor `MinPrecisionForGrade` = 0.15) is **deprecated** as the primary signal — still in JSON with `grade_deprecated: true`; show in text/HTML via `--show-grade`. **notes** are UI-only. **`parse-error` / AST failures** are **tool errors**: `parse_skipped` / separate HTML chip — they do **not** affect confirmed metrics or grade.
+- `--format text|json|sarif|html|codequality` (default: `text`) — `html` is a self-contained interactive report (one headline number: **actionable** findings + trend; a small secondary line with provisional count and tests scanned; per-finding tier badge and rule precision; TP/FP labelling buttons; filters for **error / warning / note / tool error**; search; default grouping **file → findings**, toggle By rule; `vscode://file/…:line` links; repeated messages as `×N` — one TP/FP click labels the whole group; code snippets ±5 lines; near-duplicate twin links). Notes and tool errors are unchecked by default. `codequality` is GitLab Code Quality (Code Climate JSON). Write with `-o`/`--output`, or redirect stdout (`> report.html`).
+- `text` starts with one header line, e.g. `testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files` (plus ` · trend improved (Δ -2)` when comparing), then one line per finding; provisional findings carry a `[provisional]` tag. `json` is `{"summary":{actionable_count,actionable_per_100_tests,provisional_count,shown_count,tests,files,trend?,errors,warnings,notes,parse_skipped,warnings_in_grade,warnings_ignored,health_score,grade,grade_deprecated,confirmed_count,confirmed_density},"findings":[…]}`; every finding additionally has `tier` (`actionable|provisional|low`) and `precision` (`{value,n,source,wilson_lower}`) — additive fields. `confirmed_count` / `confirmed_density` are **deprecated** aliases of `actionable_count` / `actionable_per_100_tests` (kept for one release); `health_score` / `grade` are **deprecated** (`grade_deprecated: true`) and are no longer rendered in text or HTML. **notes** are UI-only. **`parse-error` / AST failures** are **tool errors**: `parse_skipped` / separate HTML chip — they never count as actionable or provisional.
 - `-o` / `--output PATH` — write report to a file (any format)
 - `--open` — open HTML report in the default browser; without `-o` writes to `.testscan/reports/report_<timestamp>.html` and creates a local `.gitignore` so reports stay out of git
 - `--fail-on error|warning|never` (default: `error`) — exit `1` if any finding ≥ threshold; CLI errors → exit `2`. **Migration:** demoted rules (`name-body-mismatch`, `no-assert`, `mock-only-assert`, `mock-tautology`, `overbroad-equality`) and `wall-clock-in-test` are **note** by default, so `--fail-on warning` no longer fails on them; use notes triage, baseline, or config severity overrides if you still want gates.
@@ -93,15 +93,49 @@ Go remains the source of truth; Python only locates the binary and forwards argv
 - `--enable ID` (repeatable) — turn on opt-in Optional rules; merged with config `enable`
 - `--disable ID` (repeatable) — turn rule(s) off; merged with config `disable`
 - same ID in both `--rule`/`--enable` and `--disable` → error, exit `2`
-- `--baseline path.json` — suppress findings matching baseline by fingerprint (legacy `file+line+rule` still works once with a warning); also used as the trend compare point when `--compare` is omitted. When baseline is set, trend **current** is pre-baseline confirmed (so a large baseline cannot fake `improved` vs `--compare`); emitted `confirmed_*` stay post-baseline.
-- `--compare path.json` — trend confirmed metrics vs a previous JSON report (wrapper or findings array)
-- `--show-grade` — print deprecated Health Score / show full HTML grade ring
-- `--show-low-precision` — emit findings with precision &lt; 0.3 (default: omit)
+- `--baseline path.json` — suppress findings matching baseline by fingerprint (legacy `file+line+rule` still works once with a warning); also used as the trend compare point when `--compare` is omitted. When baseline is set, trend **current** is pre-baseline actionable (so a large baseline cannot fake `improved` vs `--compare`); emitted `actionable_*` stay post-baseline.
+- `--compare path.json` — trend of actionable count / density vs a previous JSON report (wrapper or findings array). Reports written before 0.5 only carry `confirmed_*`: they are read as a count-only compare point (density units differ), so the first trend after upgrading is approximate.
+- `--all` — show everything: disables the focus filter **and** shows every precision tier (and notes / tool errors). This is the old pre-0.5 default output. Config: `all = true`.
+- `--show-grade` — **deprecated no-op** (prints a warning to stderr). Health Score / A–F grade is no longer rendered in text or HTML; JSON still carries `health_score`, `grade`, `grade_deprecated: true`.
+- `--show-low-precision` — additionally show **low**-tier findings (rules that are estimated / unmeasured / below the provisional bar) while keeping the focus filter (default: hidden). Config: `show-low-precision = true`.
 - `--diff <base-ref>` — scan only test files changed or added since `base-ref` (`git diff --name-only --diff-filter=ACMR`). Primary PR workflow for reviewing AI-generated tests; use `origin/main` or `origin/main...HEAD`.
-- `--focus` — after baseline, keep only error/warning findings whose rule precision is ≥ `MinPrecisionForGrade` (0.15); drops `note`, `parse-error`, zero-precision rules, and a fixed set of demoted heuristics even if config bumps their severity. Score is computed on the focused set. Combine with `--diff` / `--baseline` for daily CI (order: scan → baseline → focus → low-precision filter → score → emit).
+- `--focus` — **deprecated no-op** (prints a warning to stderr): the focus filter is now the default. Focus keeps only error/warning findings whose rule precision weight is ≥ `MinPrecisionForGrade` (0.15) and drops `note`, `parse-error`, zero-precision rules and a fixed set of demoted heuristics even if config bumps their severity. Use `--all` to disable it. Pipeline order: scan → baseline → focus → tier filter → score (+ trend) → emit.
 - `--workers N` — parallel file checks (`0` → `runtime.NumCPU()`)
 
-**Already available for CI:** `--diff` + `--baseline` + `--focus` + `--format codequality|sarif|json`. New knobs: `--enable`, `--compare`, `--show-low-precision`, `--show-grade`.
+**Already available for CI:** `--diff` + `--baseline` + `--format codequality|sarif|json`. Knobs: `--enable`, `--compare`, `--show-low-precision`, `--all`. The exit code (`--fail-on`), SARIF and Code Quality output are all evaluated on the **shown** findings (after baseline and display filters) — with the default view that means only actionable/provisional rules can fail a build; use `--all` to gate on everything.
+
+### Precision tiers, density and labelling
+
+testscan only trusts rules whose precision has been **measured** on labelled findings. Each rule falls in one tier (thresholds are exported constants in `scan/score.go`):
+
+| Tier | Condition | Shown by default |
+|------|-----------|------------------|
+| **actionable** | measured, Wilson 95% lower bound ≥ `ActionableMinWilson` (0.7) and N ≥ `ActionableMinN` (20) | yes — counted in the headline number |
+| **provisional** | measured, precision ≥ `ProvisionalMinPrecision` (0.8) and N ≥ `ProvisionalMinN` (5), not actionable | yes — tagged `[provisional]` / badge |
+| **low** | everything else: estimated, unmeasured, unknown or below the bars | no (`--show-low-precision` or `--all`) |
+
+N is the number of labelled true + false positives of the rule. Rules without measured data (including every rule that is only *estimated* in the catalog) are **low**: they no longer count as findings you should act on.
+
+**Density** is actionable findings per **100 tests** (test functions and class methods found by the AST helper): `0.19 per 100 tests`. With 0 tests (or when no selected rule needs the AST) density is `0`.
+
+**Default view** = focus filter + actionable and provisional tiers. `--show-low-precision` adds the low tier, `--all` removes every filter.
+
+**Measured precision.** Label findings, then compute per-rule precision:
+
+1. Write an HTML report (`testscan tests --all --format html -o report.html`) and mark findings **TP** or **FP** with the buttons next to each finding (a collapsed `×N` row labels every finding in the group; state is kept in the browser's localStorage). **Export labels** downloads `labels.json`.
+2. `labels.json` (default location `.testscan/labels.json`) is a JSON array; the last entry per fingerprint wins:
+
+   ```json
+   [
+     {"fingerprint": "9d17e1409e5c531b81c3858012540f41", "rule": "empty-test",
+      "file": "tests/test_a.py", "line": 12, "label": "tp", "note": "optional"}
+   ]
+   ```
+
+   `label` is `tp`, `fp` or `skip` (skips are ignored by the statistics).
+3. `testscan precision --labels .testscan/labels.json [--report out.json] [--format text|json]` prints per rule `N`, `TP`, `FP`, precision and the Wilson 95% lower bound. With `--report` (a JSON report from `--format json`) only labels whose fingerprint appears in that report are counted, so the number describes exactly what that run shows.
+4. Copy measured values into the catalog (`scan.RulePrecision`, e.g. `scan.Measured(tp, n)`); the tier is derived from them.
+
 
 ### pre-commit
 
@@ -138,7 +172,8 @@ python-files = ["test_*.py", "*_test.py"]
 python-functions = ["test_*"]
 python-classes = ["Test*"]
 respect-gitignore = true
-# show-low-precision = true  # emit findings below precision 0.3
+# show-low-precision = true  # also show low-tier findings (estimated / unmeasured rules); focus stays on
+# all = true                 # show everything (same as --all): no focus filter, all tiers
 
 [rules.only-happy-path]
 severity = "note"
@@ -193,7 +228,7 @@ baseline, err := scan.LoadBaseline("baseline.json")
 findings = scan.FilterBaseline(findings, baseline).Findings
 ```
 
-`scan.Options.Workers` is the pool size for `Check` per file (Walk stays sequential). Health Score does not replace `--fail-on` (exit code stays severity-based).
+`scan.Options.Workers` is the pool size for `Check` per file (Walk stays sequential). The exit code stays severity-based (`--fail-on`) and is evaluated on the shown findings.
 
 ## AST helper (`internal/parse`)
 
