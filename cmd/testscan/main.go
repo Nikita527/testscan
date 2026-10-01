@@ -14,7 +14,7 @@ import (
 	"github.com/Nikita527/testscan/scan"
 )
 
-const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality] [--fail-on error|warning|never] [--rule ID] [--enable ID] [--disable ID] [--baseline path.json] [--compare path.json] [--show-grade] [--coverage path.json] [--diff base-ref] [--focus] [--show-low-precision] [--workers N] [-o|--output PATH] [--open]"
+const usage = "usage: testscan [path...] [--format text|json|sarif|html|codequality] [--fail-on error|warning|never] [--rule ID] [--enable ID] [--disable ID] [--baseline path.json] [--compare path.json] [--show-grade] [--coverage path.json] [--diff base-ref] [--focus] [--show-low-precision] [--workers N] [-o|--output PATH] [--open]\n       testscan precision --labels .testscan/labels.json [--report out.json] [--format text|json]"
 
 var errHelp = errors.New("help")
 
@@ -41,6 +41,9 @@ type cliArgs struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "precision" {
+		os.Exit(runPrecision(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	args, err := parseArgs(os.Args[1:])
 	if errors.Is(err, errHelp) {
 		fmt.Fprintln(os.Stderr, usage)

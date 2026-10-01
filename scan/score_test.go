@@ -118,7 +118,10 @@ func TestPrecisionWeight(t *testing.T) {
 		t.Fatalf("name-body-mismatch mid-precision weight=%v, want 0.35", w)
 	}
 	if w := scan.PrecisionWeight("empty-test"); w != 1 {
-		t.Fatalf("unknown rule default weight=%v, want 1", w)
+		t.Fatalf("cataloged empty-test weight=%v, want 1", w)
+	}
+	if w := scan.PrecisionWeight("no-such-rule"); w != 0 {
+		t.Fatalf("unknown rule weight=%v, want 0", w)
 	}
 }
 

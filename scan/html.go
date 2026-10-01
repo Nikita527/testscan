@@ -39,6 +39,10 @@ func WriteHTML(w io.Writer, findings []Finding, score Score) error {
 	}
 	subParts += fmt.Sprintf(" · %d file(s)", score.Files)
 	fmt.Fprintf(&b, "<p class=\"sub\">%s</p>\n", subParts)
+	b.WriteString("<div class=\"label-tools\">\n")
+	b.WriteString("<button type=\"button\" id=\"export-labels\" class=\"export-btn\" title=\"Download labels.json for testscan precision\">Export labels</button>\n")
+	b.WriteString("<span id=\"label-count\" class=\"label-count\">labeled: 0</span>\n")
+	b.WriteString("</div>\n")
 	b.WriteString("</div>\n")
 	writeConfirmedHero(&b, score)
 	b.WriteString("</div>\n")
@@ -217,20 +221,28 @@ func writeFindingList(b *strings.Builder, items []collapsedFinding, pathRoot str
 		if includeRule {
 			ruleAttr = fmt.Sprintf(` <span class="rule-id">%s</span>`, html.EscapeString(f.Rule))
 		}
+		labelHTML := ""
+		if f.Fingerprint != "" {
+			labelHTML = fmt.Sprintf(` <span class="lbl" data-fp="%s" data-rule="%s" data-path="%s" data-line="%d">`+
+				`<button type="button" class="lbl-btn lbl-tp" data-label="tp" aria-pressed="false" title="Mark true positive">TP</button>`+
+				`<button type="button" class="lbl-btn lbl-fp" data-label="fp" aria-pressed="false" title="Mark false positive">FP</button></span>`,
+				html.EscapeString(f.Fingerprint), html.EscapeString(f.Rule),
+				html.EscapeString(f.File), f.Line)
+		}
 		locHTML := fmt.Sprintf(`<a class="loc" href="%s">:%d</a>`,
 			html.EscapeString(vscodeFileURL(pathRoot, f.File, f.Line)), f.Line)
 		fmt.Fprintf(b,
 			"<li class=\"finding\" data-sev=\"%s\" data-rule=\"%s\" data-file=\"%s\" data-msg=\"%s\">"+
 				"<span class=\"sev sev-%s\">%s</span> "+
 				"%s"+
-				"<span class=\"msg\">%s%s%s%s</span>%s</li>\n",
+				"<span class=\"msg\">%s%s%s%s%s</span>%s</li>\n",
 			sev,
 			html.EscapeString(f.Rule),
 			html.EscapeString(strings.ToLower(f.File)),
 			html.EscapeString(strings.ToLower(f.Message)),
 			sev, html.EscapeString(displaySevLabel(f, sev)),
 			locHTML,
-			msgHTML, badge, related, ruleAttr, snippet,
+			msgHTML, badge, related, ruleAttr, labelHTML, snippet,
 		)
 	}
 	b.WriteString("</ul>\n")
@@ -287,12 +299,9 @@ func sortedRuleIDs(byRule map[string][]Finding) []string {
 	return ruleIDs
 }
 
-// rulePrecisionDisplay returns the catalog precision (default 1.0 for unlisted rules).
+// rulePrecisionDisplay returns the catalog precision (0 for unlisted rules).
 func rulePrecisionDisplay(ruleID string) float64 {
-	if p, ok := RulePrecision[ruleID]; ok {
-		return p
-	}
-	return 1.0
+	return RulePrecisionValue(ruleID)
 }
 
 func writeConfirmedHero(b *strings.Builder, score Score) {
@@ -773,6 +782,23 @@ main { padding: 1.25rem 1.5rem 3rem; max-width: 72rem; }
   white-space: pre;
   color: var(--muted);
 }
+.label-tools { display: flex; align-items: center; gap: .75rem; margin-top: .75rem; }
+.export-btn, .lbl-btn {
+  font: inherit;
+  font-size: .75rem;
+  padding: .15rem .5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.export-btn { font-size: .82rem; padding: .3rem .7rem; color: var(--text); }
+.export-btn:hover, .lbl-btn:hover { border-color: var(--accent); }
+.label-count { font-size: .82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lbl { display: inline-flex; gap: .25rem; margin-left: .5rem; vertical-align: middle; }
+.lbl-btn.is-active.lbl-tp { background: rgba(61,154,120,.25); color: var(--accent); border-color: var(--accent); }
+.lbl-btn.is-active.lbl-fp { background: rgba(232,93,93,.2); color: var(--error); border-color: var(--error); }
 .rule.is-hidden, .file.is-hidden, .file-section.is-hidden, .finding.is-hidden,
 .toc li.is-hidden, .view-panel.is-hidden, .toc.is-hidden { display: none; }
 @media (max-width: 640px) {
@@ -837,5 +863,73 @@ const htmlJS = `
   sevBoxes.forEach(b => b.addEventListener('change', apply));
   q.addEventListener('input', apply);
   apply();
+  // --- TP/FP labelling (state kept in web storage, every access guarded) ---
+  const LABEL_KEY = 'testscan.labels.v1';
+  let labels = {};
+  function loadLabels() {
+    try {
+      const raw = window.localStorage.getItem(LABEL_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) labels = obj;
+    } catch (e) { labels = {}; }
+  }
+  function saveLabels() {
+    try {
+      window.localStorage.setItem(LABEL_KEY, JSON.stringify(labels));
+    } catch (e) { /* storage unavailable: keep in-memory state only */ }
+  }
+  function renderLabels() {
+    document.querySelectorAll('.lbl').forEach(span => {
+      const cur = labels[span.dataset.fp];
+      span.querySelectorAll('.lbl-btn').forEach(btn => {
+        const on = !!cur && cur.label === btn.dataset.label;
+        btn.classList.toggle('is-active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    });
+    const counter = document.getElementById('label-count');
+    if (counter) counter.textContent = 'labeled: ' + Object.keys(labels).length;
+  }
+  function toggleLabel(span, value) {
+    const fp = span.dataset.fp;
+    if (labels[fp] && labels[fp].label === value) {
+      delete labels[fp];
+    } else {
+      labels[fp] = {
+        fingerprint: fp,
+        rule: span.dataset.rule,
+        file: span.dataset.path,
+        line: parseInt(span.dataset.line, 10) || 0,
+        label: value
+      };
+    }
+    saveLabels();
+    renderLabels();
+  }
+  function exportLabels() {
+    const out = Object.keys(labels).sort().map(fp => {
+      const l = labels[fp];
+      return { fingerprint: fp, rule: l.rule, file: l.file, line: l.line, label: l.label };
+    });
+    const blob = new Blob([JSON.stringify(out, null, 2) + '\n'], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'labels.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+  document.addEventListener('click', ev => {
+    const btn = ev.target && ev.target.closest ? ev.target.closest('.lbl-btn') : null;
+    if (!btn) return;
+    const span = btn.closest('.lbl');
+    if (span) toggleLabel(span, btn.dataset.label);
+  });
+  const exportBtn = document.getElementById('export-labels');
+  if (exportBtn) exportBtn.addEventListener('click', exportLabels);
+  loadLabels();
+  renderLabels();
 })();
 `

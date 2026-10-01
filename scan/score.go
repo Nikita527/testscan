@@ -21,34 +21,77 @@ const MinPrecisionForGrade = 0.15
 // by default (use --show-low-precision to restore). Confirmed metrics use this floor.
 const MinPrecisionForDisplay = 0.3
 
+// PrecisionInfo describes the precision of one rule in the catalog.
+// Source is "measured" (from labelled findings; N and WilsonLow are set) or
+// "estimated" (triage / post-fix guess; N is 0, WilsonLow may be 0).
+type PrecisionInfo struct {
+	Precision float64
+	N         int
+	Source    string // "measured" | "estimated"
+	WilsonLow float64
+}
+
+// Precision sources.
+const (
+	SourceMeasured  = "measured"
+	SourceEstimated = "estimated"
+)
+
+func est(p float64) PrecisionInfo {
+	return PrecisionInfo{Precision: p, Source: SourceEstimated}
+}
+
 // RulePrecision is the measured/estimated precision for score weighting
 // (from triage + post-fix estimates). Rules below MinPrecisionForGrade get weight 0.
-// Rules absent from the map default to 1.0 (trusted until measured otherwise).
-var RulePrecision = map[string]float64{
-	"no-assert":                           0.0,
-	"broad-raises":                        1.0,
-	"assert-in-emptyable-loop":            0.40,
-	"mock-only-assert":                    0.0,
-	"mock-tautology":                      0.0,
-	"weak-assert":                         0.25,
-	"near-duplicate-test":                 0.38,
-	"only-happy-path":                     0.50,
-	"test-imports-implementation-private": 0.0,
-	"parse-error":                         0.0,
+// Rules ABSENT from the map are unknown: precision 0, estimated — they are not
+// confirmed and carry no weight until added here (see LookupPrecision).
+var RulePrecision = map[string]PrecisionInfo{
+	"no-assert":                           est(0.0),
+	"broad-raises":                        est(1.0),
+	"assert-in-emptyable-loop":            est(0.40),
+	"mock-only-assert":                    est(0.0),
+	"mock-tautology":                      est(0.0),
+	"weak-assert":                         est(0.25),
+	"near-duplicate-test":                 est(0.38),
+	"only-happy-path":                     est(0.50),
+	"test-imports-implementation-private": est(0.0),
+	"parse-error":                         est(0.0),
 	// AI-focused / newer rules — proportional until corpus-measured higher.
-	"expected-recomputed": 0.60,
-	"self-patched-sut":    0.55,
-	"name-body-mismatch":  0.35,
-	"commented-assert":    0.55,
-	"overbroad-equality":  0.55,
-	"assert-true":         0.90,
-	"sleep-in-test":       1.0,
-	"wall-clock-in-test":  0.50,
+	"expected-recomputed": est(0.60),
+	"self-patched-sut":    est(0.55),
+	"name-body-mismatch":  est(0.35),
+	"commented-assert":    est(0.55),
+	"overbroad-equality":  est(0.55),
+	"assert-true":         est(0.90),
+	"sleep-in-test":       est(1.0),
+	"wall-clock-in-test":  est(0.50),
 	// Opt-in project rules — conservative until corpus-measured.
-	"error-contract-assert": 0.55,
-	"raises-without-check":  0.50,
-	"missing-mirror-test":   0.70,
-	"rbac-mutation-guard":   0.45,
+	"error-contract-assert": est(0.55),
+	"raises-without-check":  est(0.50),
+	"missing-mirror-test":   est(0.70),
+	"rbac-mutation-guard":   est(0.45),
+	// Rules that were previously uncatalogued and implicitly trusted at 1.0.
+	// Listed explicitly (estimated) so behaviour is unchanged; unknown IDs now get 0.
+	"empty-test":          est(1.0),
+	"assert-equals-same":  est(1.0),
+	"assert-tuple":        est(1.0),
+	"duplicate-test-name": est(1.0),
+	"fake-mock-assert":    est(1.0),
+	"no-behavior-change":  est(1.0),
+	"overmocked-io":       est(1.0),
+	"skip-without-reason": est(1.0),
+	"snapshot-only":       est(1.0),
+	"swallowed-exception": est(1.0),
+	"todo-test":           est(1.0),
+}
+
+// LookupPrecision returns the catalog entry for a rule. For an unknown rule it
+// returns {Precision: 0, Source: "estimated"} and false.
+func LookupPrecision(ruleID string) (PrecisionInfo, bool) {
+	if p, ok := RulePrecision[ruleID]; ok {
+		return p, true
+	}
+	return PrecisionInfo{Precision: 0, Source: SourceEstimated}, false
 }
 
 // Trend compares the current confirmed metrics to a previous compare point.
@@ -92,12 +135,10 @@ type Score struct {
 }
 
 // PrecisionWeight returns the score multiplier for a rule ID.
-// Precision below MinPrecisionForGrade yields 0; unknown rules yield 1.
+// Precision below MinPrecisionForGrade yields 0; unknown rules yield 0.
 func PrecisionWeight(ruleID string) float64 {
-	p, ok := RulePrecision[ruleID]
-	if !ok {
-		return 1.0
-	}
+	info, _ := LookupPrecision(ruleID)
+	p := info.Precision
 	if p < MinPrecisionForGrade {
 		return 0
 	}
@@ -283,12 +324,10 @@ func TrendCurrentMetrics(postScore Score, preBaseline []Finding, focus, filterLo
 	return pre.ConfirmedCount, pre.ConfirmedDensity
 }
 
-// RulePrecisionValue returns the catalog precision for a rule (default 1.0).
+// RulePrecisionValue returns the catalog precision for a rule (0 if unknown).
 func RulePrecisionValue(ruleID string) float64 {
-	if p, ok := RulePrecision[ruleID]; ok {
-		return p
-	}
-	return 1.0
+	info, _ := LookupPrecision(ruleID)
+	return info.Precision
 }
 
 // FilterLowPrecision drops findings whose rule precision is below MinPrecisionForDisplay.
