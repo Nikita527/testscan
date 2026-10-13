@@ -395,8 +395,8 @@ func TestDisplayOptions_ExplicitRules(t *testing.T) {
 
 func TestHiddenGateWarning(t *testing.T) {
 	hidden := []scan.Finding{
-		{Rule: "empty-test", Severity: "error"},
-		{Rule: "empty-test", Severity: "error"},
+		{Rule: "todo-test", Severity: "error"},
+		{Rule: "todo-test", Severity: "error"},
 		{Rule: "todo-test", Severity: "note"},
 	}
 	want := "testscan: 2 findings at or above --fail-on error are hidden by the default view (unmeasured precision); use --all to gate on them"
@@ -411,6 +411,43 @@ func TestHiddenGateWarning(t *testing.T) {
 	}
 	if got := hiddenGateWarning(nil, "error"); got != "" {
 		t.Fatalf("none hidden: %q", got)
+	}
+}
+
+func TestHiddenHint(t *testing.T) {
+	if got := hiddenHint(1); got != "testscan: 1 finding hidden by the default view; use --all to show them" {
+		t.Fatalf("singular: %q", got)
+	}
+	if got := hiddenHint(7); got != "testscan: 7 findings hidden by the default view; use --all to show them" {
+		t.Fatalf("plural: %q", got)
+	}
+}
+
+func TestDeterministicGateMetricsAndJSON(t *testing.T) {
+	f := scan.Finding{File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty"}
+	shown := []scan.Finding{f}
+	if got := exitCode(shown, "error"); got != 1 {
+		t.Fatalf("deterministic empty-test must fail --fail-on error, exit=%d", got)
+	}
+	if got := exitCode(shown, "never"); got != 0 {
+		t.Fatalf("--fail-on never: exit=%d", got)
+	}
+	score := scan.CalculateScoreWithTests(shown, 1, 10)
+	if score.DeterministicCount != 1 || score.ActionableCount != 0 || score.ProvisionalCount != 0 {
+		t.Fatalf("deterministic must not inflate actionable/provisional: %+v", score)
+	}
+	var buf strings.Builder
+	if err := scan.WriteJSON(&buf, shown, score); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		`"deterministic_count": 1`, `"actionable_count": 0`,
+		`"tier": "deterministic"`, `"source": "deterministic"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("json missing %s:\n%s", want, out)
+		}
 	}
 }
 
@@ -432,7 +469,7 @@ func TestWriteFindings_TextAndJSONScore(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(textBuf.String()), "\n")
-	wantHeader := "testscan: 1 actionable finding (0.10 per 100 tests) · 1 provisional · 1000 tests in 5 files"
+	wantHeader := "testscan: 1 actionable finding (0.10 per 100 tests) · 1 provisional · 0 deterministic · 1000 tests in 5 files"
 	if lines[0] != wantHeader {
 		t.Fatalf("header = %q, want %q", lines[0], wantHeader)
 	}
@@ -460,12 +497,30 @@ func TestWriteFindings_TextAndJSONScore(t *testing.T) {
 	out := jsonBuf.String()
 	for _, want := range []string{
 		`"summary"`, `"health_score"`, `"confirmed_count"`, `"confirmed_density"`, `"grade_deprecated": true`,
-		`"actionable_count": 1`, `"actionable_per_100_tests"`, `"provisional_count": 1`,
+		`"actionable_count": 1`, `"actionable_per_100_tests"`, `"provisional_count": 1`, `"deterministic_count": 0`,
 		`"shown_count": 2`, `"tests": 1000`, `"tier": "provisional"`, `"precision"`, `"findings"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("json missing %s: %s", want, out)
 		}
+	}
+}
+
+func TestWriteFindings_DeterministicTag(t *testing.T) {
+	fs := []scan.Finding{{
+		File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty",
+	}}
+	score := scan.CalculateScoreWithTests(fs, 1, 10)
+	var buf strings.Builder
+	if err := writeFindings(&buf, fs, score, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "· 1 deterministic") || !strings.HasSuffix(strings.TrimSpace(strings.Split(out, "\n")[1]), "[deterministic]") {
+		t.Fatalf("want deterministic header+tag:\n%s", out)
+	}
+	if score.DeterministicCount != 1 || score.ActionableCount != 0 {
+		t.Fatalf("deterministic must not inflate actionable: %+v", score)
 	}
 }
 
@@ -516,6 +571,30 @@ func TestHelperMain(t *testing.T) {
 	}
 	os.Args = append([]string{"testscan"}, args...)
 	main()
+}
+
+func TestMain_HiddenHintOnStderr(t *testing.T) {
+	dir := t.TempDir()
+	// todo-test is low-tier → hidden by default; triggers the always-on stderr hint.
+	src := "import pytest\n\ndef test_todo():\n    pytest.skip()\n"
+	if err := os.WriteFile(filepath.Join(dir, "test_todo.py"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperMain$", "--", dir, "--format", "text", "--fail-on", "never")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "TESTSCAN_HELPER_MAIN=1")
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "hidden by the default view") {
+		t.Fatalf("want hidden hint on stderr:\n%s", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "hidden by the default view") {
+		t.Fatalf("hint must not appear on stdout:\n%s", stdout.String())
+	}
 }
 
 func TestCompare_LegacyPointIsIncomparable(t *testing.T) {

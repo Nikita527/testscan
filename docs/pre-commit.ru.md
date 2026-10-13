@@ -8,6 +8,8 @@
 
 Не требует `testscan` в `PATH`. Удобно, если в проекте уже есть `uv`.
 
+**Фиксируйте релиз** (`testscan@x.y.z`), а не `@latest`, чтобы CI и локальные хуки не «плыли» при выходе новой версии. Поднимайте pin осознанно после чтения changelog.
+
 ```yaml
 # .pre-commit-config.yaml
 repos:
@@ -15,7 +17,7 @@ repos:
     hooks:
       - id: testscan
         name: testscan
-        entry: uvx testscan@latest
+        entry: uvx testscan@0.5.0   # pin; поднимайте после релиз-нотов
         language: system
         types: [python]
         files: '(^|/)(test_[^/]*|[^/]*_test)\.py$'
@@ -51,7 +53,7 @@ repos:
     hooks:
       - id: testscan
         name: testscan
-        entry: uvx testscan@latest
+        entry: uvx testscan@0.5.0
         language: system
         types: [python]
         files: '(^|/)(test_[^/]*|[^/]*_test)\.py$'
@@ -62,11 +64,11 @@ repos:
 Разовый прогон suite (вне pre-commit):
 
 ```bash
-uvx testscan@latest /c/Dev/mp-be/tests --fail-on never
+uvx testscan@0.5.0 /c/Dev/mp-be/tests --fail-on never
 # PR / AI-тесты: только файлы с merge-base
-uvx testscan@latest /c/Dev/mp-be/tests --diff origin/main --fail-on warning
+uvx testscan@0.5.0 /c/Dev/mp-be/tests --diff origin/main --fail-on warning
 # SARIF для GitHub Code Scanning:
-uvx testscan@latest /c/Dev/mp-be/tests --format sarif --fail-on never > testscan.sarif
+uvx testscan@0.5.0 /c/Dev/mp-be/tests --format sarif --fail-on never > testscan.sarif
 ```
 
 ## SARIF в CI

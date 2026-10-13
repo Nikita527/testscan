@@ -13,10 +13,11 @@ type JSONSummary struct {
 	// HTML and will be dropped from JSON in a future release.
 	GradeDeprecated bool `json:"grade_deprecated"`
 	// ActionableCount / ActionableDensity (per 100 tests) are the primary metrics.
-	ActionableCount  int     `json:"actionable_count"`
-	ActionablePer100 float64 `json:"actionable_per_100_tests"`
-	ProvisionalCount int     `json:"provisional_count"`
-	ShownCount       int     `json:"shown_count"`
+	ActionableCount    int     `json:"actionable_count"`
+	ActionablePer100   float64 `json:"actionable_per_100_tests"`
+	ProvisionalCount   int     `json:"provisional_count"`
+	DeterministicCount int     `json:"deterministic_count"`
+	ShownCount         int     `json:"shown_count"`
 	// HiddenCount is the number of findings hidden by the default display filters.
 	HiddenCount int `json:"hidden_count"`
 	Tests       int `json:"tests"`
@@ -53,25 +54,26 @@ func WriteJSON(w io.Writer, findings []Finding, score Score) error {
 	}
 	report := JSONReport{
 		Summary: JSONSummary{
-			HealthScore:      score.Value,
-			Grade:            score.Grade,
-			GradeDeprecated:  true,
-			ActionableCount:  score.ActionableCount,
-			ActionablePer100: score.ActionableDensity,
-			ProvisionalCount: score.ProvisionalCount,
-			ShownCount:       score.ShownCount,
-			HiddenCount:      score.HiddenCount,
-			Tests:            score.Tests,
-			ConfirmedCount:   score.ActionableCount,
-			ConfirmedDensity: score.ActionableDensity,
-			Trend:            score.Trend,
-			Errors:           score.Errors,
-			Warnings:         score.Warnings,
-			Notes:            score.Notes,
-			Files:            score.Files,
-			ParseSkipped:     score.ParseSkipped,
-			WarningsInGrade:  score.WarningsInGrade,
-			WarningsIgnored:  score.WarningsIgnored,
+			HealthScore:        score.Value,
+			Grade:              score.Grade,
+			GradeDeprecated:    true,
+			ActionableCount:    score.ActionableCount,
+			ActionablePer100:   score.ActionableDensity,
+			ProvisionalCount:   score.ProvisionalCount,
+			DeterministicCount: score.DeterministicCount,
+			ShownCount:         score.ShownCount,
+			HiddenCount:        score.HiddenCount,
+			Tests:              score.Tests,
+			ConfirmedCount:     score.ActionableCount,
+			ConfirmedDensity:   score.ActionableDensity,
+			Trend:              score.Trend,
+			Errors:             score.Errors,
+			Warnings:           score.Warnings,
+			Notes:              score.Notes,
+			Files:              score.Files,
+			ParseSkipped:       score.ParseSkipped,
+			WarningsInGrade:    score.WarningsInGrade,
+			WarningsIgnored:    score.WarningsIgnored,
 		},
 		Findings: out,
 	}

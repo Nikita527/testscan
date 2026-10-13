@@ -150,12 +150,15 @@ func main() {
 		}
 	}
 
-	// Display filters: default = focus + actionable/provisional tiers;
+	// Display filters: default = focus + actionable/provisional/deterministic tiers;
 	// --show-low-precision adds low tiers; --all disables every filter.
 	// Exit code, SARIF, codequality and the score all use this shown set.
 	display := displayOptions(args)
 	hidden := scan.HiddenByDisplay(findings, display)
 	findings = scan.FilterForDisplay(findings, display)
+	if len(hidden) > 0 {
+		fmt.Fprintln(os.Stderr, hiddenHint(len(hidden)))
+	}
 	if msg := hiddenGateWarning(hidden, args.failOn); msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
@@ -196,6 +199,16 @@ func displayOptions(args cliArgs) scan.DisplayOptions {
 		ShowLowPrecision: args.showLowPrecision,
 		ExplicitRules:    scan.ExplicitSet(args.only, args.enable),
 	}
+}
+
+// hiddenHint returns the always-on stderr line when any findings are hidden by
+// the default display filters.
+func hiddenHint(n int) string {
+	noun := "findings"
+	if n == 1 {
+		noun = "finding"
+	}
+	return fmt.Sprintf("testscan: %d %s hidden by the default view; use --all to show them", n, noun)
 }
 
 // hiddenGateWarning returns the stderr line for hidden findings that would have
@@ -410,8 +423,13 @@ func writeFindings(w io.Writer, findings []scan.Finding, score scan.Score, forma
 		}
 		for _, f := range findings {
 			tag := ""
-			if f.Rule != "parse-error" && scan.RuleTier(f.Rule) == scan.TierProvisional {
-				tag = " [provisional]"
+			if f.Rule != "parse-error" {
+				switch scan.RuleTier(f.Rule) {
+				case scan.TierProvisional:
+					tag = " [provisional]"
+				case scan.TierDeterministic:
+					tag = " [deterministic]"
+				}
 			}
 			if _, err := fmt.Fprintf(w, "%s:%d: %s %s: %s%s\n",
 				f.File, f.Line, f.Severity, f.Rule, f.Message, tag); err != nil {

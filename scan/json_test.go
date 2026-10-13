@@ -31,8 +31,8 @@ func TestWriteJSON(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, key := range []string{
-			"actionable_count", "actionable_per_100_tests", "provisional_count", "shown_count",
-			"tests", "confirmed_count", "confirmed_density", "health_score", "grade", "grade_deprecated",
+			"actionable_count", "actionable_per_100_tests", "provisional_count", "deterministic_count",
+			"shown_count", "tests", "confirmed_count", "confirmed_density", "health_score", "grade", "grade_deprecated",
 		} {
 			if _, ok := sum[key]; !ok {
 				t.Errorf("summary missing %q", key)

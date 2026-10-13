@@ -2,7 +2,7 @@
 
 [English](rules.md) | Русский
 
-У каждого правила из `Default()` есть минимальный пример **hit** (должен сработать) и **clean** (не должен). Эвристики текстовые или AST — см. [README.ru.md](../README.ru.md) про ложные срабатывания, **`--diff`** / **`--all`** / **`--compare`**, тиры точности (actionable / provisional / low) и плотность actionable на 100 тестов и **tool errors** (`parse-error`).
+У каждого правила из `Default()` есть минимальный пример **hit** (должен сработать) и **clean** (не должен). Эвристики текстовые или AST — см. [README.ru.md](../README.ru.md) про ложные срабатывания, **`--diff`** / **`--all`** / **`--compare`**, тиры точности (actionable / provisional / deterministic / low) и плотность actionable на 100 тестов и **tool errors** (`parse-error`).
 
 Отключить правило: `--disable ID` или `disable = ["ID"]` в `.testscan.toml` / `[tool.testscan]`.  
 Включить opt-in: `--enable ID` или `enable = ["ID"]` (см. **Optional** в конце).

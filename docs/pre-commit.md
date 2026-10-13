@@ -8,6 +8,8 @@ Run testscan on staged `test_*.py` / `*_test.py` files. Hook id: `testscan` (see
 
 Works without putting the binary on `PATH`. Good default for repos that already use `uv`.
 
+**Pin a release** (`testscan@x.y.z`) instead of `@latest` so CI and local hooks do not drift when a new major/minor ships. Bump the pin deliberately after reading the changelog.
+
 ```yaml
 # .pre-commit-config.yaml
 repos:
@@ -15,7 +17,7 @@ repos:
     hooks:
       - id: testscan
         name: testscan
-        entry: uvx testscan@latest
+        entry: uvx testscan@0.5.0   # pin; bump after reviewing the release notes
         language: system
         types: [python]
         files: '(^|/)(test_[^/]*|[^/]*_test)\.py$'
@@ -51,7 +53,7 @@ repos:
     hooks:
       - id: testscan
         name: testscan
-        entry: uvx testscan@latest
+        entry: uvx testscan@0.5.0
         language: system
         types: [python]
         files: '(^|/)(test_[^/]*|[^/]*_test)\.py$'
@@ -62,11 +64,11 @@ repos:
 Ad-hoc scan of the suite (outside pre-commit):
 
 ```bash
-uvx testscan@latest /c/Dev/mp-be/tests --fail-on never
+uvx testscan@0.5.0 /c/Dev/mp-be/tests --fail-on never
 # PR / AI tests: only files changed since the merge base
-uvx testscan@latest /c/Dev/mp-be/tests --diff origin/main --fail-on warning
+uvx testscan@0.5.0 /c/Dev/mp-be/tests --diff origin/main --fail-on warning
 # SARIF for GitHub Code Scanning:
-uvx testscan@latest /c/Dev/mp-be/tests --format sarif --fail-on never > testscan.sarif
+uvx testscan@0.5.0 /c/Dev/mp-be/tests --format sarif --fail-on never > testscan.sarif
 ```
 
 ## SARIF in CI

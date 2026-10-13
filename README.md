@@ -22,105 +22,88 @@ A Go linter that walks a tree, finds `test_*.py` / `*_test.py`, and applies a fo
 
 CLI messages are in English (standard for CLIs). See [README.ru.md](README.ru.md) for Russian docs.
 
+## See it
+
+Default text output surfaces **deterministic** smells (empty tests, tuple asserts, fake mock methods, …) with a concrete fix line:
+
+```text
+testscan: 0 actionable findings (0.00 per 100 tests) · 0 provisional · 3 deterministic · 4 tests in 3 files
+rules/testdata/empty/hit/test_empty.py:1: error empty-test: empty test function: test_vacuous [deterministic]
+  → fix: add the missing arrange/act/assert body, or delete the test
+rules/testdata/assert_tuple/hit/test_tuple.py:3: warning assert-tuple: assert on a tuple is always True; did you mean a comparison? [deterministic]
+  → fix: remove the parentheses/comma so the assert compares values: `assert a == b`
+rules/testdata/fake_mock_assert/hit/test_fake.py:2: warning fake-mock-assert: suspicious mock assert (typo or non-existent method) [deterministic]
+  → fix: fix the mock assertion to a real method, e.g. `mock.assert_called_once_with(...)`
+```
+
+HTML reports add tier badges and TP/FP labelling (`--format html --open`). Optional screenshot: [docs/assets/](docs/assets/).
+
 ## Quick Start
 
-### From PyPI (recommended)
-
-No Go toolchain required — platform wheels ship the Go binary:
-
 ```bash
-uvx testscan@latest tests/
-# or: pipx run testscan tests/
-```
-
-```bash
-# Daily / PR — changed tests, high-signal only
+uvx testscan@latest tests/                          # PyPI wheel — no Go required
 testscan tests --diff origin/main --format html --open
-
-# Snapshot or refresh baseline noise on the whole tree, then gate the PR
 testscan tests --format json --fail-on never > .testscan/baseline.json
 testscan tests --diff origin/main --baseline .testscan/baseline.json --fail-on warning
-
-# Trend vs yesterday’s JSON (or use --baseline alone as the compare point)
-testscan tests --format json -o .testscan/prev.json --fail-on never
-testscan tests --compare .testscan/prev.json --format text
-
-# Everything: no focus filter, every precision tier (triage low-precision heuristics / notes)
-testscan path/to/tests --all --format html --open
-
-# Opt-in project rules (DRF / API-style)
-testscan tests --enable error-contract-assert --enable raises-without-check
-
-testscan path/to/tests --format text --fail-on error
-testscan path/to/tests --format json --fail-on never
-testscan path/to/tests --format sarif --fail-on never > testscan.sarif
-testscan path/to/tests --format codequality -o gl-code-quality-report.json
-testscan path --rule assert-equals-same
-testscan path --disable weak-assert --disable empty-test
-testscan path --workers 4
-testscan tests --diff origin/main...HEAD --format html --open
+testscan tests --format agent                       # one line per finding for AI hooks
 ```
 
-### With Go
+Install with Go: `go install github.com/Nikita527/testscan/cmd/testscan@latest`. Local embed for contributors: [python/README.md](python/README.md).
 
-```bash
-go install github.com/Nikita527/testscan/cmd/testscan@latest
-# or: go build -o testscan ./cmd/testscan
+## Use with AI agents
 
-testscan .
+`--format agent` prints one compact line per finding (`file:line rule — problem → fix`) plus a summary — meant for Claude Code / Cursor / Windsurf hooks that feed findings back into the same turn:
+
+```text
+tests/test_orders.py:42 sleep-in-test — time.sleep in test → remove `time.sleep(...)`; wait on the condition or use a fake clock
+tests/test_orders.py:88 empty-test — empty test function: test_vacuous → add the missing arrange/act/assert body, or delete the test
+testscan: 2 findings (1 error, 1 warning) · 31 tests
 ```
 
-### Local embed (contributors)
+Wire it as a post-edit hook on changed `test_*.py` files. Recipes: [docs/agent-hook.md](docs/agent-hook.md).
 
-Thin Python launcher — see [python/README.md](python/README.md). Embed a local binary, then run from the package path:
+## What it catches (sample)
 
-```powershell
-powershell -ExecutionPolicy Bypass -File python/scripts/embed_bin.ps1
-uvx --from ./python testscan --help
-uvx --from ./python testscan path --fail-on never
-```
+| Rule | Smell | Hit | Clean |
+|------|-------|-----|-------|
+| `empty-test` | empty `test_*` body | `def test_vacuous(): pass` | `assert 1 == 1` in the body |
+| `assert-tuple` | `assert (x == 1, "msg")` always true | parentheses + comma | `assert x == 1, "msg"` |
+| `fake-mock-assert` | typo / non-existent mock assert | `mock.assert_called_once_wiht()` | `mock.assert_called_once_with()` |
+| `assert-equals-same` | assert compares expr to itself | `assert x == x` | `assert x == y` |
 
-Go remains the source of truth; Python only locates the binary and forwards argv / exit code.
+Full hit/clean examples for every rule: [docs/rules.md](docs/rules.md).
 
 ### Flags
 
-- `--format text|json|sarif|html|codequality|agent` (default: `text`) — `agent` prints one line per finding (`file:line rule — problem → fix`) plus a one-line summary, for AI agents and hooks (see [docs/agent-hook.md](docs/agent-hook.md)); every finding carries a concrete `fix` hint (JSON `fix`, SARIF help/`properties.fix`, HTML and text "fix" line); `html` is a self-contained interactive report (one headline number: **actionable** findings + trend; a small secondary line with provisional count and tests scanned; per-finding tier badge and rule precision; TP/FP labelling buttons; filters for **error / warning / note / tool error**; search; default grouping **file → findings**, toggle By rule; `vscode://file/…:line` links; repeated messages as `×N` — one TP/FP click labels the whole group; code snippets ±5 lines; near-duplicate twin links). Notes and tool errors are unchecked by default. `codequality` is GitLab Code Quality (Code Climate JSON). Write with `-o`/`--output`, or redirect stdout (`> report.html`).
-- `text` starts with one header line, e.g. `testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files` (plus ` · trend improved (Δ -2)` when comparing), then one line per finding; provisional findings carry a `[provisional]` tag. `json` is `{"summary":{actionable_count,actionable_per_100_tests,provisional_count,shown_count,tests,files,trend?,errors,warnings,notes,parse_skipped,warnings_in_grade,warnings_ignored,health_score,grade,grade_deprecated,confirmed_count,confirmed_density},"findings":[…]}`; every finding additionally has `tier` (`actionable|provisional|low`) and `precision` (`{value,n,source,wilson_lower}`) — additive fields. `confirmed_count` / `confirmed_density` are **deprecated** aliases of `actionable_count` / `actionable_per_100_tests` (kept for one release); `health_score` / `grade` are **deprecated** (`grade_deprecated: true`) and are no longer rendered in text or HTML. **notes** are UI-only. **`parse-error` / AST failures** are **tool errors**: `parse_skipped` / separate HTML chip — they never count as actionable or provisional.
-- `-o` / `--output PATH` — write report to a file (any format)
-- `--open` — open HTML report in the default browser; without `-o` writes to `.testscan/reports/report_<timestamp>.html` and creates a local `.gitignore` so reports stay out of git
-- `--fail-on error|warning|never` (default: `error`) — exit `1` if any finding ≥ threshold; CLI errors → exit `2`. **Migration:** in v0.5.0 `name-body-mismatch`, `no-assert`, `mock-only-assert`, and `mock-tautology` are now **opt-in** (moved from default); use `--enable` / `enable` to activate them. The default view shows only actionable and provisional findings (see Precision tiers); `wall-clock-in-test` and `overbroad-equality` remain default at **note** severity.
-- `--rule ID` (repeatable) — only these rules (from `All()` = Default ∪ Optional); omit to use `Default()` plus `--enable`
-- `--enable ID` (repeatable) — turn on opt-in Optional rules; merged with config `enable`
-- `--disable ID` (repeatable) — turn rule(s) off; merged with config `disable`
-- same ID in both `--rule`/`--enable` and `--disable` → error, exit `2`
-- `--baseline path.json` — suppress findings matching baseline by fingerprint (legacy `file+line+rule` still works once with a warning); also used as the trend compare point when `--compare` is omitted. When baseline is set, trend **current** is pre-baseline actionable (so a large baseline cannot fake `improved` vs `--compare`); emitted `actionable_*` stay post-baseline.
-- `--compare path.json` — trend of actionable count / density vs a previous JSON report (wrapper or findings array). Reports written before 0.5 only carry `confirmed_*`: they are read as a count-only compare point (density units differ), so the first trend after upgrading is approximate.
-- `--all` — show everything: disables the focus filter **and** shows every precision tier (and notes / tool errors). This is the old pre-0.5 default output. Config: `all = true`.
-- `--show-grade` — **deprecated no-op** (prints a warning to stderr). Health Score / A–F grade is no longer rendered in text or HTML; JSON still carries `health_score`, `grade`, `grade_deprecated: true`.
-- `--show-low-precision` — additionally show **low**-tier findings (rules that are estimated / unmeasured / below the provisional bar) while keeping the focus filter (default: hidden). Config: `show-low-precision = true`.
-- `--diff <base-ref>` — scan only test files changed or added since `base-ref` (`git diff --name-only --diff-filter=ACMR`). Primary PR workflow for reviewing AI-generated tests; use `origin/main` or `origin/main...HEAD`.
-- `--focus` — **deprecated no-op** (prints a warning to stderr): the focus filter is now the default. Focus keeps only error/warning findings whose rule precision weight is ≥ `MinPrecisionForGrade` (0.15) and drops `note`, zero-precision rules and a fixed set of demoted heuristics even if config bumps their severity. Use `--all` to disable it. `parse-error` is always shown. Pipeline order: scan → baseline → focus → tier filter → score (+ trend) → emit.
-- `--workers N` — parallel file checks (`0` → `runtime.NumCPU()`)
+- `--format text|json|sarif|html|codequality|agent` (default: `text`) — `agent` for AI hooks; `html` interactive report; `codequality` = GitLab Code Quality. Write with `-o`/`--output` or redirect stdout.
+- `--fail-on error|warning|never` (default: `error`) — exit `1` if any **shown** finding ≥ threshold; CLI errors → exit `2`.
+- `--diff <base-ref>` — only test files changed since `base-ref` (PR workflow).
+- `--baseline path.json` / `--compare path.json` — suppress known findings / trend vs a previous JSON report.
+- `--all` — show everything (pre-0.5 full output). `--show-low-precision` — also show **low**-tier rules (focus stays on).
+- `--rule` / `--enable` / `--disable` — select rules; same ID in enable and disable → exit `2`.
+- `--workers N` — parallel file checks (`0` → `runtime.NumCPU()`).
+- `-o` / `--output PATH`, `--open` — write / open HTML (default path under `.testscan/reports/`).
 
-**Already available for CI:** `--diff` + `--baseline` + `--format codequality|sarif|json`. Knobs: `--enable`, `--compare`, `--show-low-precision`, `--all`. The exit code (`--fail-on`), SARIF and Code Quality output are all evaluated on the **shown** findings (after baseline and display filters) — with the default view that means only actionable/provisional rules can fail a build; use `--all` to gate on everything.
+CI: `--diff` + `--baseline` + `codequality|sarif|json`. Exit code, SARIF and Code Quality use the **shown** set (actionable / provisional / deterministic by default). `--compare` trend stays **actionable-only** — a spike in `deterministic_count` can fail the gate without moving trend.
 
-**Migrating CI from 0.4 to 0.5:** deterministic but not-yet-measured rules (empty-test, assert-tuple, swallowed-exception, …) are hidden by default and no longer affect `--fail-on`; add `--all` to your CI command to keep the 0.4 gating behaviour. The default view reports what it hid (`· N hidden (use --all)`, JSON `summary.hidden_count`) and prints one stderr line when hidden findings would have tripped `--fail-on`. `parse-error` (a file that could not be analyzed) is always shown. Rules requested explicitly via `--enable` / `--rule` bypass the display filters. Comparing against a pre-0.5 report gives trend `incomparable` (`trend: n/a`). Go library users: see "Go API" in the CHANGELOG.
+**0.4 → 0.5 / 0.5 → 0.6 migration** (deprecated flags, deterministic gate): [docs/migration-0.5.md](docs/migration-0.5.md).
 
 ### Precision tiers, density and labelling
 
-testscan only trusts rules whose precision has been **measured** on labelled findings. Each rule falls in one tier (thresholds are exported constants in `scan/score.go`):
+Each rule falls in one tier (thresholds in `scan/score.go`):
 
 | Tier | Condition | Shown by default |
 |------|-----------|------------------|
 | **actionable** | measured, Wilson 95% lower bound ≥ `ActionableMinWilson` (0.7) and N ≥ `ActionableMinN` (20) | yes — counted in the headline number |
 | **provisional** | measured, precision ≥ `ProvisionalMinPrecision` (0.8) and N ≥ `ProvisionalMinN` (5), not actionable | yes — tagged `[provisional]` / badge |
+| **deterministic** | catalog `SourceDeterministic` — follows from Python/pytest semantics (allowlist of 6 rules) | yes — tagged `[deterministic]` / badge; **not** in `actionable_count` |
 | **low** | everything else: estimated, unmeasured, unknown or below the bars | no (`--show-low-precision` or `--all`) |
 
-N is the number of labelled true + false positives of the rule. Rules without measured data (including every rule that is only *estimated* in the catalog) are **low**: they no longer count as findings you should act on.
+N is the number of labelled true + false positives of the rule. Estimated catalog entries (including remaining `est(1.0)` heuristics) are **low**.
 
-**Density** is actionable findings per **100 tests** (test functions and class methods found by the AST helper): `0.19 per 100 tests`. With 0 tests (or when no selected rule needs the AST) density is `0`.
+**Density** is actionable findings per **100 tests**: `0.19 per 100 tests`. With 0 tests density is `0`. **Trend** (`--compare`) uses the same actionable metrics; gate/`deterministic_count` are separate.
 
-**Default view** = focus filter + actionable and provisional tiers. `--show-low-precision` adds the low tier, `--all` removes every filter.
+**Default view** = focus filter + actionable, provisional and deterministic tiers. `--show-low-precision` adds low, `--all` removes every filter.
 
 **Measured precision.** Label findings, then compute per-rule precision:
 
@@ -150,7 +133,7 @@ repos:
     hooks:
       - id: testscan
         name: testscan
-        entry: uvx testscan@latest
+        entry: uvx testscan@0.5.0   # pin a release; see docs/pre-commit.md
         language: system
         types: [python]
         files: '(^|/)(test_[^/]*|[^/]*_test)\.py$'
@@ -340,6 +323,10 @@ testscan is a cheap pre-filter for AI-written tests. **Mutation orchestration** 
 ```bash
 go test ./...
 ```
+
+## Contributing
+
+Build, AST helper, embed wheels, rule testdata, and precision/labels workflow: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

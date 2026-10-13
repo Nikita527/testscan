@@ -32,32 +32,39 @@ const (
 
 // Tier names reported in text, HTML and JSON.
 const (
-	TierActionable  = "actionable"
-	TierProvisional = "provisional"
-	TierLow         = "low"
+	TierActionable    = "actionable"
+	TierProvisional   = "provisional"
+	TierDeterministic = "deterministic"
+	TierLow           = "low"
 )
 
 // PrecisionInfo describes the precision of one rule in the catalog.
-// Source is "measured" (from labelled findings; N and WilsonLow are set) or
-// "estimated" (triage / post-fix guess; N is 0, WilsonLow may be 0).
+// Source is "measured" (from labelled findings; N and WilsonLow are set),
+// "estimated" (triage / post-fix guess; N is 0, WilsonLow may be 0), or
+// "deterministic" (follows from Python/pytest semantics, not a heuristic).
 // For measured entries TP (true positives out of N) may be left 0, in which case
 // it is derived as round(Precision*N); a zero WilsonLow is computed from TP and N.
 type PrecisionInfo struct {
 	Precision float64
 	N         int
-	Source    string // "measured" | "estimated"
+	Source    string // "measured" | "estimated" | "deterministic"
 	WilsonLow float64
 	TP        int
 }
 
 // Precision sources.
 const (
-	SourceMeasured  = "measured"
-	SourceEstimated = "estimated"
+	SourceMeasured      = "measured"
+	SourceEstimated     = "estimated"
+	SourceDeterministic = "deterministic"
 )
 
 func est(p float64) PrecisionInfo {
 	return PrecisionInfo{Precision: p, Source: SourceEstimated}
+}
+
+func det(p float64) PrecisionInfo {
+	return PrecisionInfo{Precision: p, Source: SourceDeterministic}
 }
 
 // Measured builds a measured catalog entry from labelled counts (tp of n = TP+FP).
@@ -88,8 +95,13 @@ func (p PrecisionInfo) Wilson() float64 {
 	return WilsonLower(tp, p.N, WilsonZ95)
 }
 
-// Tier classifies the entry: actionable, provisional or low.
+// Tier classifies the entry: deterministic, actionable, provisional or low.
+// Deterministic is checked before measured tiers so semantic certainties are not
+// misclassified as low when they lack labelled counts.
 func (p PrecisionInfo) Tier() string {
+	if p.Source == SourceDeterministic {
+		return TierDeterministic
+	}
 	if p.Source != SourceMeasured {
 		return TierLow
 	}
@@ -102,11 +114,11 @@ func (p PrecisionInfo) Tier() string {
 	return TierLow
 }
 
-// RulePrecision is the measured/estimated precision for score weighting
+// RulePrecision is the measured/estimated/deterministic precision for score weighting
 // (from triage + post-fix estimates). Rules below MinPrecisionForGrade get weight 0.
 // Rules ABSENT from the map are unknown: precision 0, estimated — they are never
-// actionable/provisional until measured entries are added here (see LookupPrecision,
-// Measured and `testscan precision`).
+// actionable/provisional/deterministic until catalogued (see LookupPrecision,
+// Measured, det and `testscan precision`).
 var RulePrecision = map[string]PrecisionInfo{
 	"no-assert":                           est(0.0), // rewritten on data-flow (0.5.0); old 0/4 measurement no longer applies
 	"broad-raises":                        Measured(2, 2),
@@ -132,16 +144,16 @@ var RulePrecision = map[string]PrecisionInfo{
 	"raises-without-check":  est(0.50),
 	"missing-mirror-test":   est(0.70),
 	"rbac-mutation-guard":   est(0.45),
-	// Rules that were previously uncatalogued and implicitly trusted at 1.0.
-	// Listed explicitly (estimated) so Health Score weights are unchanged; unknown IDs get 0.
-	"empty-test":          est(1.0),
-	"assert-equals-same":  est(1.0),
-	"assert-tuple":        est(1.0),
-	"duplicate-test-name": est(1.0),
-	"fake-mock-assert":    est(1.0),
+	// Deterministic: follow from Python/pytest semantics (shown by default; not in actionable_count).
+	"assert-tuple":        det(1.0),
+	"fake-mock-assert":    det(1.0),
+	"duplicate-test-name": det(1.0),
+	"empty-test":          det(1.0),
+	"assert-equals-same":  det(1.0),
+	"skip-without-reason": det(1.0),
+	// Still estimated (heuristic) despite precision 1.0 — stay low until measured.
 	"no-behavior-change":  est(1.0),
 	"overmocked-io":       est(1.0),
-	"skip-without-reason": est(1.0),
 	"snapshot-only":       est(1.0),
 	"swallowed-exception": est(1.0),
 	"todo-test":           est(1.0),
@@ -156,8 +168,8 @@ func LookupPrecision(ruleID string) (PrecisionInfo, bool) {
 	return PrecisionInfo{Precision: 0, Source: SourceEstimated}, false
 }
 
-// RuleTier returns the precision tier of a rule ("actionable"|"provisional"|"low").
-// Unknown rules are "low".
+// RuleTier returns the precision tier of a rule
+// ("deterministic"|"actionable"|"provisional"|"low"). Unknown rules are "low".
 func RuleTier(rule string) string {
 	info, _ := LookupPrecision(rule)
 	return info.Tier()
@@ -203,6 +215,8 @@ type Score struct {
 	ActionableCount int
 	// ProvisionalCount is shown findings of provisional-tier rules.
 	ProvisionalCount int
+	// DeterministicCount is shown findings of deterministic-tier rules.
+	DeterministicCount int
 	// ShownCount is the number of findings in the emitted set.
 	ShownCount int
 	// HiddenCount is the number of findings removed by the default display
@@ -256,6 +270,9 @@ func CountActionable(findings []Finding) int { return CountTier(findings, TierAc
 
 // CountProvisional returns findings of provisional-tier rules.
 func CountProvisional(findings []Finding) int { return CountTier(findings, TierProvisional) }
+
+// CountDeterministic returns findings of deterministic-tier rules.
+func CountDeterministic(findings []Finding) int { return CountTier(findings, TierDeterministic) }
 
 // densityDenom is the Health Score density denominator (files based).
 func densityDenom(fileCount int) float64 {
@@ -396,23 +413,24 @@ func CalculateScoreWithTests(findings []Finding, fileCount, tests int) Score {
 	actionable := CountActionable(findings)
 	density := DensityPer100(actionable, tests)
 	return Score{
-		Value:             value,
-		Grade:             gradeFor(value),
-		Errors:            errors,
-		Warnings:          warnings,
-		Notes:             notes,
-		Files:             fileCount,
-		ParseSkipped:      parseSkipped,
-		WarningsInGrade:   warningsInGrade,
-		WarningsIgnored:   warningsIgnored,
-		Tests:             tests,
-		ActionableCount:   actionable,
-		ProvisionalCount:  CountProvisional(findings),
-		ShownCount:        len(findings),
-		ActionableDensity: density,
-		ConfirmedCount:    actionable,
-		ConfirmedDensity:  density,
-		GradeDeprecated:   true,
+		Value:              value,
+		Grade:              gradeFor(value),
+		Errors:             errors,
+		Warnings:           warnings,
+		Notes:              notes,
+		Files:              fileCount,
+		ParseSkipped:       parseSkipped,
+		WarningsInGrade:    warningsInGrade,
+		WarningsIgnored:    warningsIgnored,
+		Tests:              tests,
+		ActionableCount:    actionable,
+		ProvisionalCount:   CountProvisional(findings),
+		DeterministicCount: CountDeterministic(findings),
+		ShownCount:         len(findings),
+		ActionableDensity:  density,
+		ConfirmedCount:     actionable,
+		ConfirmedDensity:   density,
+		GradeDeprecated:    true,
 	}
 }
 
@@ -448,7 +466,7 @@ func ParseErrorNote(n int) string {
 
 // FormatScoreLine returns the one-line text header, e.g.
 //
-//	testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files
+//	testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3 deterministic · 3650 tests in 382 files
 //
 // followed by the trend when present. The density and test count are omitted
 // when the number of tests is unknown (0).
@@ -461,7 +479,7 @@ func FormatScoreLine(s Score) string {
 	if s.Tests > 0 {
 		line += fmt.Sprintf(" (%.2f per 100 tests)", s.ActionableDensity)
 	}
-	line += fmt.Sprintf(" · %d provisional", s.ProvisionalCount)
+	line += fmt.Sprintf(" · %d provisional · %d deterministic", s.ProvisionalCount, s.DeterministicCount)
 	if s.Tests > 0 {
 		line += fmt.Sprintf(" · %d tests in %d files", s.Tests, s.Files)
 	} else {
@@ -488,7 +506,7 @@ func FormatScoreLine(s Score) string {
 
 // DisplayOptions selects which findings are shown.
 //
-//	default            focus filter + actionable/provisional tiers only
+//	default            focus filter + actionable/provisional/deterministic tiers
 //	ShowLowPrecision   focus filter + all tiers
 //	All                no filtering at all
 //
@@ -579,8 +597,8 @@ func RulePrecisionValue(ruleID string) float64 {
 	return info.Precision
 }
 
-// FilterTiers keeps findings of actionable and provisional rules. parse-error
-// tool findings are always kept.
+// FilterTiers keeps findings of actionable, provisional and deterministic rules.
+// parse-error tool findings are always kept.
 func FilterTiers(findings []Finding) []Finding {
 	out := make([]Finding, 0, len(findings))
 	for _, f := range findings {

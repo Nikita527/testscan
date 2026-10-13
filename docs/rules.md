@@ -2,7 +2,7 @@
 
 English | [Русский](rules.ru.md)
 
-Each default rule below has a minimal **hit** (should report) and **clean** (should not) example. Heuristics are text- or AST-based; see the main [README](../README.md) for false-positive notes, **`--diff`** / **`--all`** / **`--compare`**, precision tiers (actionable / provisional / low) and actionable density per 100 tests, and **tool errors** (`parse-error`).
+Each default rule below has a minimal **hit** (should report) and **clean** (should not) example. Heuristics are text- or AST-based; see the main [README](../README.md) for false-positive notes, **`--diff`** / **`--all`** / **`--compare`**, precision tiers (actionable / provisional / deterministic / low) and actionable density per 100 tests, and **tool errors** (`parse-error`).
 
 Disable a rule: `--disable ID` or `disable = ["ID"]` in `.testscan.toml` / `[tool.testscan]`.  
 Enable an opt-in rule: `--enable ID` or `enable = ["ID"]` (see **Optional rules** at the end).

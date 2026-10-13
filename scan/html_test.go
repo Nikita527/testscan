@@ -57,7 +57,8 @@ func TestWriteHTML(t *testing.T) {
 		"actionable-count",
 		"per 100 tests",
 		"hero-secondary",
-		"0 provisional \u00b7 40 tests in 2 files",
+		"0 provisional \u00b7 2 deterministic \u00b7 40 tests in 2 files",
+		`class="tier tier-deterministic"`,
 		"vscode://file/",
 		`data-view="file"`,
 		`data-view="rule"`,
@@ -122,12 +123,12 @@ func TestWriteHTML_HeroSingleNumber(t *testing.T) {
 	for _, want := range []string{
 		`<span class="actionable-count">1</span>`,
 		"2.00 per 100 tests",
-		"1 provisional \u00b7 50 tests in 1 files",
+		"1 provisional \u00b7 0 deterministic \u00b7 50 tests in 1 files",
 		`class="tier tier-provisional"`,
 		`class="tier tier-low"`,
 		"p=0.96 n=25 measured",
 		">estimated<",
-		"actionable, provisional and low-precision",
+		"actionable, provisional, deterministic and low-precision",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)

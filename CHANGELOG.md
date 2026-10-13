@@ -5,7 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.5.0 (unreleased)
+## 0.6.0 (unreleased)
+
+Default view shows semantic (deterministic) findings again; agent-hook docs cover more IDEs.
+
+### Breaking
+
+- Six semantic rules (`assert-tuple`, `fake-mock-assert`, `duplicate-test-name`, `empty-test`, `assert-equals-same`, `skip-without-reason`) are tier **`deterministic`**: shown by default again and **affect** `--fail-on` / SARIF / Code Quality. They still do **not** count toward `actionable_count` or `--compare` trend (trend stays actionable-only). Mitigation: `--baseline`, `--disable <id>`, or stay on 0.5.x. Details: [docs/migration-0.5.md](docs/migration-0.5.md#upgrading-from-05-to-06).
+- Deprecated JSON `health_score` / `grade` may drop when these findings reappear in the shown set (full precision weight); text/HTML already omit the grade.
+
+### Added
+
+- **Precision tier `deterministic`:** findings that follow from Python/pytest semantics (not a heuristic). Shown by default with actionable/provisional; separate `deterministic_count` in Score/JSON/header (not mixed into `actionable_count`). Tagged `[deterministic]` in text; badge in HTML. Allowlist: the six rules above.
+- Docs: [docs/migration-0.5.md](docs/migration-0.5.md) (+ `.ru.md`) for the 0.4→0.5 CI/flags migration and the 0.5→0.6 note.
+- Docs: [docs/agent-hook.md](docs/agent-hook.md) (+ `.ru.md`) — Agent hooks for Claude Code, Cursor, Windsurf, plus a short CLI-in-agent-loop note for Continue/Aider.
+- [CONTRIBUTING.md](CONTRIBUTING.md): build, AST helper, embed wheels, tests, rule testdata, precision/labels workflow.
+- README: **See it**, **Use with AI agents**, short rule→smell table; Precision tiers documents `deterministic`.
+
+### Changed
+
+- Default display includes the `deterministic` tier (alongside actionable/provisional).
+- Stderr: when `HiddenCount > 0`, always print one hint line (not only when hidden findings would trip `--fail-on`). Agent-hook recipes keep that hint out of the model payload (do not merge stderr with `2>&1`).
+- Docs: pre-commit recommends pinning `uvx testscan@x.y.z` instead of `@latest`.
+
+### Fixed
+
+- CHANGELOG: `0.5.0` marked with its release date (was left as `(unreleased)`).
+
+## [0.5.0] - 2026-10-01
 
 Honest metrics and a quiet default: only rules with **measured** precision are trusted, and the default output shows only those.
 

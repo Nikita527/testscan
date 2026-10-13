@@ -108,8 +108,11 @@ func TestUnknownRuleNotActionable(t *testing.T) {
 	if got := scan.FilterTiers(f); len(got) != 0 {
 		t.Fatalf("unknown rule must be filtered by default: %+v", got)
 	}
-	if info, ok := scan.LookupPrecision("empty-test"); !ok || info.Precision != 1 || info.Source != "estimated" {
+	if info, ok := scan.LookupPrecision("empty-test"); !ok || info.Precision != 1 || info.Source != scan.SourceDeterministic {
 		t.Fatalf("empty-test = %+v, %v", info, ok)
+	}
+	if n := scan.CountActionable([]scan.Finding{{Rule: "empty-test", Severity: "error"}}); n != 0 {
+		t.Fatalf("deterministic empty-test must not count as actionable, got %d", n)
 	}
 }
 

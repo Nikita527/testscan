@@ -20,116 +20,88 @@
 
 Сообщения CLI на английском (стандарт для CLI).
 
+## Как это выглядит
+
+Вид по умолчанию показывает **deterministic**-запахи (пустые тесты, tuple-assert, фейковые mock-методы, …) с конкретной строкой fix:
+
+```text
+testscan: 0 actionable findings (0.00 per 100 tests) · 0 provisional · 3 deterministic · 4 tests in 3 files
+rules/testdata/empty/hit/test_empty.py:1: error empty-test: empty test function: test_vacuous [deterministic]
+  → fix: add the missing arrange/act/assert body, or delete the test
+rules/testdata/assert_tuple/hit/test_tuple.py:3: warning assert-tuple: assert on a tuple is always True; did you mean a comparison? [deterministic]
+  → fix: remove the parentheses/comma so the assert compares values: `assert a == b`
+rules/testdata/fake_mock_assert/hit/test_fake.py:2: warning fake-mock-assert: suspicious mock assert (typo or non-existent method) [deterministic]
+  → fix: fix the mock assertion to a real method, e.g. `mock.assert_called_once_with(...)`
+```
+
+HTML-отчёт добавляет бейджи тиров и разметку TP/FP (`--format html --open`). Опциональный скрин: [docs/assets/](docs/assets/).
+
 ## Быстрый старт
 
-### Из PyPI (рекомендуется)
-
-Без Go — platform wheels уже содержат бинарник:
-
 ```bash
-uvx testscan@latest tests/
-# или: pipx run testscan tests/
-```
-
-```bash
-# Ежедневно / PR — изменённые тесты, только высокий сигнал
+uvx testscan@latest tests/                          # PyPI wheel — Go не нужен
 testscan tests --diff origin/main --format html --open
-
-# Снять/обновить baseline шума на всём репо, затем гейт на PR
 testscan tests --format json --fail-on never > .testscan/baseline.json
 testscan tests --diff origin/main --baseline .testscan/baseline.json --fail-on warning
-
-# Тренд vs вчерашний JSON (или --baseline как точка сравнения)
-testscan tests --format json -o .testscan/prev.json --fail-on never
-testscan tests --compare .testscan/prev.json --format text
-
-# Всё: без focus, все тиры точности (триаж низкоточных эвристик / notes)
-testscan path/to/tests --all --format html --open
-
-# Opt-in project-rules (DRF / API)
-testscan tests --enable error-contract-assert --enable raises-without-check
-
-testscan path/to/tests --format text --fail-on error
-testscan path/to/tests --format json --fail-on never
-testscan path/to/tests --format sarif --fail-on never > testscan.sarif
-testscan path/to/tests --format codequality -o gl-code-quality-report.json
-testscan path --rule assert-equals-same
-testscan path --disable weak-assert --disable empty-test
-testscan path --workers 4
-testscan tests --diff origin/main...HEAD --format html --open
+testscan tests --format agent                       # по строке на находку для AI-хуков
 ```
 
-### Через Go
+Установка через Go: `go install github.com/Nikita527/testscan/cmd/testscan@latest`. Локальный embed: [python/README.ru.md](python/README.ru.md).
 
-```bash
-go install github.com/Nikita527/testscan/cmd/testscan@latest
-# или: go build -o testscan.exe ./cmd/testscan
+## С ИИ-агентами
 
-./testscan.exe .
+`--format agent` печатает по компактной строке на находку (`file:line rule — проблема → fix`) и summary — для хуков Claude Code / Cursor / Windsurf, которые возвращают находки в тот же ход:
+
+```text
+tests/test_orders.py:42 sleep-in-test — time.sleep in test → remove `time.sleep(...)`; wait on the condition or use a fake clock
+tests/test_orders.py:88 empty-test — empty test function: test_vacuous → add the missing arrange/act/assert body, or delete the test
+testscan: 2 findings (1 error, 1 warning) · 31 tests
 ```
 
-### Локальный embed (для контрибьюторов)
+Подключайте как post-edit hook на изменённые `test_*.py`. Рецепты: [docs/agent-hook.ru.md](docs/agent-hook.ru.md).
 
-Тонкий Python-launcher: см. [python/README.md](python/README.md) (EN) или [python/README.ru.md](python/README.ru.md).
+## Что ловит (пример)
 
-```powershell
-powershell -ExecutionPolicy Bypass -File python/scripts/embed_bin.ps1
-uvx --from ./python testscan --help
-uvx --from ./python testscan path --fail-on never
-```
+| Правило | Запах | Hit | Clean |
+|---------|-------|-----|-------|
+| `empty-test` | пустое тело `test_*` | `def test_vacuous(): pass` | `assert 1 == 1` в теле |
+| `assert-tuple` | `assert (x == 1, "msg")` всегда true | скобки + запятая | `assert x == 1, "msg"` |
+| `fake-mock-assert` | опечатка / несуществующий mock assert | `mock.assert_called_once_wiht()` | `mock.assert_called_once_with()` |
+| `assert-equals-same` | assert сравнивает выражение с собой | `assert x == x` | `assert x == y` |
 
-Go остаётся источником правды; Python только находит бинарник и пробрасывает argv/exit code.
+Полные hit/clean для всех правил: [docs/rules.ru.md](docs/rules.ru.md).
 
-Пример на mp-be:
+### Флаги
 
-```bash
-./testscan.exe /c/Dev/mp-be/tests --fail-on never --format json
-```
+- `--format text|json|sarif|html|codequality|agent` (default: `text`) — `agent` для AI-хуков; `html` — интерактивный отчёт; `codequality` = GitLab Code Quality. Пишите через `-o`/`--output` или stdout.
+- `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть **показанная** находка ≥ порога; ошибки CLI → exit `2`.
+- `--diff <base-ref>` — только тестовые файлы, изменённые с `base-ref` (PR-workflow).
+- `--baseline path.json` / `--compare path.json` — подавить известные находки / тренд vs предыдущий JSON.
+- `--all` — показать всё (полный вывод до 0.5). `--show-low-precision` — также **low**-тир (focus остаётся).
+- `--rule` / `--enable` / `--disable` — выбор правил; одно ID в enable и disable → exit `2`.
+- `--workers N` — параллельные проверки (`0` → `runtime.NumCPU()`).
+- `-o` / `--output PATH`, `--open` — записать / открыть HTML (по умолчанию `.testscan/reports/`).
 
-Замер у себя (не в CI):
+CI: `--diff` + `--baseline` + `codequality|sarif|json`. Exit code, SARIF и Code Quality считаются по **показанному** набору (actionable / provisional / deterministic по умолчанию). Тренд `--compare` — только **actionable**; всплеск `deterministic_count` может валить гейт, не двигая trend.
 
-```bash
-time ./testscan.exe /c/Dev/mp-be/tests --fail-on never >/dev/null
-```
-
-Флаги:
-- `--format text|json|sarif|html|codequality|agent` (default: `text`) — `agent` печатает по строке на находку (`file:line rule — проблема → fix`) и одну итоговую строку, для ИИ-агентов и хуков (см. [docs/agent-hook.ru.md](docs/agent-hook.ru.md)); у каждой находки есть конкретная подсказка `fix` (JSON `fix`, SARIF help/`properties.fix`, строка fix в HTML и text); `html` — самодостаточный отчёт (в hero одно главное число: **actionable** + trend; мелкая строка с числом provisional и просканированных тестов; бейдж тира и precision правила у каждой находки; кнопки TP/FP; фильтры **error / warning / note / tool error**; поиск; по умолчанию **файл → находки**, переключатель By rule; ссылки `vscode://file/…:line`; повторы `×N` — один клик TP/FP размечает всю группу; фрагменты ±5 строк; twin у near-duplicate). Notes и tool errors по умолчанию сняты. `codequality` — GitLab Code Quality. Пишите через `-o`/`--output` или stdout.
-- `text` начинается одной строкой-заголовком, например `testscan: 7 actionable findings (0.19 per 100 tests) · 6 provisional · 3650 tests in 382 files` (+ ` · trend improved (Δ -2)` при сравнении), затем по строке на находку; provisional помечены `[provisional]`. `json` = `{"summary":{actionable_count,actionable_per_100_tests,provisional_count,shown_count,tests,files,trend?,errors,warnings,notes,parse_skipped,warnings_in_grade,warnings_ignored,health_score,grade,grade_deprecated,confirmed_count,confirmed_density},"findings":[…]}`; у каждой находки добавлены `tier` (`actionable|provisional|low`) и `precision` (`{value,n,source,wilson_lower}`) — аддитивные поля. `confirmed_count` / `confirmed_density` — **deprecated** синонимы `actionable_count` / `actionable_per_100_tests` (оставлены на один релиз); `health_score` / `grade` — **deprecated** (`grade_deprecated: true`), в text и HTML больше не выводятся. **`parse-error`** — tool errors (`parse_skipped`), не считаются ни actionable, ни provisional.
-- `-o` / `--output PATH` — записать отчёт в файл
-- `--open` — открыть HTML в браузере; без `-o` пишет в `.testscan/reports/report_<timestamp>.html` и создаёт локальный `.gitignore`
-- `--fail-on error|warning|never` (default: `error`) — exit `1`, если есть finding ≥ порога; ошибки CLI → exit `2`. **Migration:** в v0.5.0 `name-body-mismatch`, `no-assert`, `mock-only-assert` и `mock-tautology` теперь **opt-in** (перемещены из default); активируйте через `--enable` / `enable`. Вид по умолчанию показывает только actionable и provisional находки (см. Тиры точности); `wall-clock-in-test` и `overbroad-equality` остаются default с severity **note**.
-- `--rule ID` — только эти правила из `All()`; без флага — `Default()` плюс `--enable`
-- `--enable ID` — включить opt-in Optional-правила; объединяется с `enable` из конфига
-- `--disable ID` — выключить правило(а); объединяется с `disable` из конфига
-- одно и то же ID в `--rule`/`--enable` и `--disable` → ошибка, exit `2`
-- `--baseline path.json` — подавить findings по fingerprint; также точка тренда, если нет `--compare`. При наличии baseline тренд **current** считается по pre-baseline actionable (большой baseline не может нарисовать ложный `improved` vs `--compare`); в summary `actionable_*` остаются post-baseline.
-- `--compare path.json` — тренд actionable (число и плотность) vs предыдущий JSON-отчёт. Отчёты до 0.5 содержат только `confirmed_*`: они читаются как точка сравнения только по числу (единицы плотности другие), поэтому первый тренд после обновления приблизителен.
-- `--all` — показать всё: отключает focus-фильтр **и** показывает все тиры точности (и notes / tool errors). Это прежний полный вывод до 0.5. Конфиг: `all = true`.
-- `--show-grade` — **deprecated, ничего не делает** (предупреждение в stderr). Health Score / оценка A–F больше не выводятся в text и HTML; JSON по-прежнему содержит `health_score`, `grade`, `grade_deprecated: true`.
-- `--show-low-precision` — дополнительно показать находки **low**-тира (estimated / не измеренные / ниже порога provisional), focus-фильтр остаётся (по умолчанию скрыты). Конфиг: `show-low-precision = true`.
-- `--diff <base-ref>` — только изменённые/добавленные тестовые файлы с `base-ref`
-- `--focus` — **deprecated, ничего не делает** (предупреждение в stderr): focus-фильтр теперь включён по умолчанию. Он оставляет error/warning с весом precision ≥ 0.15 и убирает `note`, правила с нулевой точностью и набор демотированных эвристик. `--all` отключает его. `parse-error` показывается всегда. Порядок: scan → baseline → focus → фильтр по тирам → score (+ trend) → emit.
-- `--workers N` — параллельные проверки (`0` → `runtime.NumCPU()`)
-
-**Уже есть для CI:** `--diff` + `--baseline` + `codequality`/`sarif`/`json`. Ручки: `--enable`, `--compare`, `--show-low-precision`, `--all`. Exit code (`--fail-on`), SARIF и Code Quality считаются по **показанным** находкам (после baseline и display-фильтров): в виде по умолчанию билд могут валить только actionable/provisional правила; для гейта по всему используйте `--all`.
-
-**Миграция CI с 0.4 на 0.5:** детерминированные, но ещё не измеренные правила (empty-test, assert-tuple, swallowed-exception, …) по умолчанию скрыты и больше не влияют на `--fail-on`; добавьте `--all` в команду CI, чтобы сохранить поведение 0.4. Вид по умолчанию сообщает, что скрыл (`· N hidden (use --all)`, JSON `summary.hidden_count`), и печатает одну строку в stderr, если скрытые находки сработали бы на `--fail-on`. `parse-error` (файл, который не удалось проанализировать) показывается всегда. Правила, запрошенные явно через `--enable` / `--rule`, обходят display-фильтры. Сравнение с отчётом до 0.5 даёт тренд `incomparable` (`trend: n/a`). Для пользователей Go-библиотеки см. «Go API» в CHANGELOG.
+**Миграция 0.4 → 0.5 / 0.5 → 0.6** (deprecated-флаги, гейт deterministic): [docs/migration-0.5.ru.md](docs/migration-0.5.ru.md).
 
 ### Тиры точности, плотность и разметка
 
-testscan доверяет только правилам, у которых точность **измерена** на размеченных находках. Каждое правило попадает в один тир (пороги — экспортируемые константы в `scan/score.go`):
+Каждое правило попадает в один тир (пороги в `scan/score.go`):
 
 | Тир | Условие | Показывается по умолчанию |
 |-----|---------|---------------------------|
 | **actionable** | измерено, нижняя граница Вильсона 95% ≥ `ActionableMinWilson` (0.7) и N ≥ `ActionableMinN` (20) | да — считается в главном числе |
 | **provisional** | измерено, precision ≥ `ProvisionalMinPrecision` (0.8) и N ≥ `ProvisionalMinN` (5), но не actionable | да — тег `[provisional]` / бейдж |
+| **deterministic** | каталог `SourceDeterministic` — следует из семантики Python/pytest (allowlist из 6 правил) | да — тег `[deterministic]` / бейдж; **не** входит в `actionable_count` |
 | **low** | всё остальное: estimated, не измерено, неизвестное правило или ниже порогов | нет (`--show-low-precision` или `--all`) |
 
-N — число размеченных TP + FP правила. Правила без измеренных данных (в том числе все, что в каталоге только *estimated*) — **low**.
+N — число размеченных TP + FP правила. Estimated-записи в каталоге (включая оставшиеся `est(1.0)`-эвристики) — **low**.
 
-**Плотность** — actionable-находки на **100 тестов** (тест-функции и методы классов из AST): `0.19 per 100 tests`. При 0 тестов (или если ни одному выбранному правилу не нужен AST) плотность `0`.
+**Плотность** — actionable-находки на **100 тестов**: `0.19 per 100 tests`. При 0 тестов плотность `0`. **Тренд** (`--compare`) — те же actionable-метрики; гейт и `deterministic_count` — отдельно.
 
-**Вид по умолчанию** = focus-фильтр + тиры actionable и provisional. `--show-low-precision` добавляет low, `--all` снимает все фильтры.
+**Вид по умолчанию** = focus-фильтр + тиры actionable, provisional и deterministic. `--show-low-precision` добавляет low, `--all` снимает все фильтры.
 
 **Измеренная точность.** Разметьте находки и посчитайте точность по правилам:
 
@@ -159,7 +131,7 @@ repos:
     hooks:
       - id: testscan
         name: testscan
-        entry: uvx testscan@latest
+        entry: uvx testscan@0.5.0   # pin релиза; см. docs/pre-commit.ru.md
         language: system
         types: [python]
         files: '(^|/)(test_[^/]*|[^/]*_test)\.py$'
@@ -340,6 +312,10 @@ testscan — дешёвый префильтр для AI-тестов. **Орк�
 ```bash
 go test ./...
 ```
+
+## Участие
+
+Сборка, AST helper, embed wheels, rule testdata и precision/labels: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

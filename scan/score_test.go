@@ -179,9 +179,9 @@ func TestCalculateScore_ParsePenalty(t *testing.T) {
 
 func TestFormatScoreLine(t *testing.T) {
 	got := scan.FormatScoreLine(scan.Score{
-		ActionableCount: 7, ActionableDensity: 0.19, ProvisionalCount: 6, Tests: 3650, Files: 382,
+		ActionableCount: 7, ActionableDensity: 0.19, ProvisionalCount: 6, DeterministicCount: 3, Tests: 3650, Files: 382,
 	})
-	want := "testscan: 7 actionable findings (0.19 per 100 tests) \u00b7 6 provisional \u00b7 3650 tests in 382 files"
+	want := "testscan: 7 actionable findings (0.19 per 100 tests) \u00b7 6 provisional \u00b7 3 deterministic \u00b7 3650 tests in 382 files"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
@@ -190,7 +190,7 @@ func TestFormatScoreLine(t *testing.T) {
 		t.Fatalf("singular: %q", one)
 	}
 	noTests := scan.FormatScoreLine(scan.Score{Files: 4})
-	if noTests != "testscan: 0 actionable findings \u00b7 0 provisional \u00b7 4 files" {
+	if noTests != "testscan: 0 actionable findings \u00b7 0 provisional \u00b7 0 deterministic \u00b7 4 files" {
 		t.Fatalf("unknown tests: %q", noTests)
 	}
 	withTrend := scan.FormatScoreLine(scan.Score{
@@ -217,6 +217,7 @@ func TestRuleTier(t *testing.T) {
 		"prov-p79":        scan.Measured(15, 19),
 		"prov-n4":         scan.Measured(4, 4),
 		"est":             {Precision: 1, Source: scan.SourceEstimated},
+		"det":             {Precision: 1, Source: scan.SourceDeterministic},
 		"derived":         {Precision: 0.95, N: 40, Source: scan.SourceMeasured},
 		"explicit-wilson": {Precision: 0.9, N: 25, Source: scan.SourceMeasured, WilsonLow: 0.69},
 	})
@@ -224,6 +225,7 @@ func TestRuleTier(t *testing.T) {
 		"act-exact": scan.TierActionable, "act-n19": scan.TierProvisional,
 		"act-wilson-low": scan.TierProvisional, "prov": scan.TierProvisional,
 		"prov-p79": scan.TierLow, "prov-n4": scan.TierLow, "est": scan.TierLow,
+		"det":     scan.TierDeterministic,
 		"derived": scan.TierActionable, "explicit-wilson": scan.TierProvisional,
 		"not-in-catalog": scan.TierLow, "parse-error": scan.TierLow,
 	} {
@@ -233,17 +235,56 @@ func TestRuleTier(t *testing.T) {
 	}
 }
 
+func TestCatalogDeterministicAllowlist(t *testing.T) {
+	want := map[string]bool{
+		"assert-tuple": true, "fake-mock-assert": true, "duplicate-test-name": true,
+		"empty-test": true, "assert-equals-same": true, "skip-without-reason": true,
+	}
+	for id, info := range scan.RulePrecision {
+		got := info.Source == scan.SourceDeterministic
+		if want[id] != got {
+			t.Errorf("%s: deterministic=%v, want %v", id, got, want[id])
+		}
+	}
+	for id := range want {
+		if scan.RuleTier(id) != scan.TierDeterministic {
+			t.Errorf("RuleTier(%s)=%s", id, scan.RuleTier(id))
+		}
+	}
+	for _, id := range []string{"todo-test", "swallowed-exception", "snapshot-only"} {
+		if scan.RuleTier(id) != scan.TierLow {
+			t.Errorf("neighbor %s must stay low, got %s", id, scan.RuleTier(id))
+		}
+	}
+}
+
+func TestFilterForDisplay_DeterministicAllowlistPasses(t *testing.T) {
+	ids := []string{
+		"assert-tuple", "fake-mock-assert", "duplicate-test-name",
+		"empty-test", "assert-equals-same", "skip-without-reason",
+	}
+	for _, id := range ids {
+		in := []scan.Finding{{Rule: id, Severity: "error", File: "t.py", Line: 1}}
+		got := scan.FilterForDisplay(in, scan.DisplayOptions{})
+		if len(got) != 1 || got[0].Rule != id {
+			t.Errorf("%s must pass default display, got %+v", id, got)
+		}
+	}
+}
+
 func TestCountTiersAndDensity(t *testing.T) {
 	withCatalog(t, map[string]scan.PrecisionInfo{
 		"a": scan.Measured(30, 30), "p": scan.Measured(5, 5),
+		"d": {Precision: 1, Source: scan.SourceDeterministic},
 	})
 	findings := []scan.Finding{
 		{Rule: "a", Severity: "error"}, {Rule: "a", Severity: "error"},
-		{Rule: "p", Severity: "warning"}, {Rule: "zzz", Severity: "warning"},
+		{Rule: "p", Severity: "warning"}, {Rule: "d", Severity: "error"},
+		{Rule: "zzz", Severity: "warning"},
 		{Rule: "parse-error", Severity: "note"},
 	}
 	s := scan.CalculateScoreWithTests(findings, 3, 400)
-	if s.ActionableCount != 2 || s.ProvisionalCount != 1 || s.ShownCount != 5 || s.Tests != 400 {
+	if s.ActionableCount != 2 || s.ProvisionalCount != 1 || s.DeterministicCount != 1 || s.ShownCount != 6 || s.Tests != 400 {
 		t.Fatalf("score=%+v", s)
 	}
 	if s.ActionableDensity != 0.5 { // 2 per 400 tests = 0.5 per 100
@@ -264,11 +305,13 @@ func TestCountTiersAndDensity(t *testing.T) {
 func TestFilterForDisplay(t *testing.T) {
 	withCatalog(t, map[string]scan.PrecisionInfo{
 		"act": scan.Measured(30, 30), "prov": scan.Measured(5, 5),
+		"det": {Precision: 1, Source: scan.SourceDeterministic},
 		"low": {Precision: 1, Source: scan.SourceEstimated},
 	})
 	findings := []scan.Finding{
 		{Rule: "act", Severity: "error"},
 		{Rule: "prov", Severity: "warning"},
+		{Rule: "det", Severity: "error"},
 		{Rule: "low", Severity: "error"},
 		{Rule: "act", Severity: "note"}, // focus drops notes
 		{Rule: "parse-error", Severity: "note"},
@@ -280,10 +323,10 @@ func TestFilterForDisplay(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{})); got != "act/error,prov/warning,parse-error/note" {
+	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{})); got != "act/error,prov/warning,det/error,parse-error/note" {
 		t.Errorf("default: %s", got)
 	}
-	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{ShowLowPrecision: true})); got != "act/error,prov/warning,low/error,parse-error/note" {
+	if got := rules(scan.FilterForDisplay(findings, scan.DisplayOptions{ShowLowPrecision: true})); got != "act/error,prov/warning,det/error,low/error,parse-error/note" {
 		t.Errorf("show-low: %s", got)
 	}
 	if got := scan.FilterForDisplay(findings, scan.DisplayOptions{All: true}); len(got) != len(findings) {
@@ -401,13 +444,14 @@ func TestCalculateScore_LargeRepoHighPrecision(t *testing.T) {
 func TestFilterTiers(t *testing.T) {
 	withCatalog(t, map[string]scan.PrecisionInfo{
 		"act": scan.Measured(30, 30), "prov": scan.Measured(5, 5),
+		"det": {Precision: 1, Source: scan.SourceDeterministic},
 		"est": {Precision: 1, Source: scan.SourceEstimated},
 	})
 	in := []scan.Finding{
-		{Rule: "act"}, {Rule: "prov"}, {Rule: "est"}, {Rule: "unknown"}, {Rule: "parse-error"},
+		{Rule: "act"}, {Rule: "prov"}, {Rule: "det"}, {Rule: "est"}, {Rule: "unknown"}, {Rule: "parse-error"},
 	}
 	got := scan.FilterTiers(in)
-	if len(got) != 3 || got[0].Rule != "act" || got[1].Rule != "prov" || got[2].Rule != "parse-error" {
+	if len(got) != 4 || got[0].Rule != "act" || got[1].Rule != "prov" || got[2].Rule != "det" || got[3].Rule != "parse-error" {
 		t.Fatalf("got %v", got)
 	}
 }

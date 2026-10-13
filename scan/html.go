@@ -321,16 +321,20 @@ func rulePrecisionDisplay(ruleID string) float64 {
 	return RulePrecisionValue(ruleID)
 }
 
-// precisionText renders a rule's catalog precision, e.g. "p=0.85 n=24 measured"
-// or "estimated".
+// precisionText renders a rule's catalog precision, e.g. "p=0.85 n=24 measured",
+// "deterministic", or "estimated".
 func precisionText(info PrecisionInfo) string {
-	if info.Source == SourceMeasured {
+	switch info.Source {
+	case SourceMeasured:
 		return fmt.Sprintf("p=%.2f n=%d measured", info.Precision, info.N)
+	case SourceDeterministic:
+		return "deterministic"
+	default:
+		return "estimated"
 	}
-	return "estimated"
 }
 
-// tierBadgeHTML renders the tier badge (provisional/low) and the rule precision.
+// tierBadgeHTML renders the tier badge (provisional/deterministic/low) and the rule precision.
 func tierBadgeHTML(ruleID string) string {
 	if ruleID == "parse-error" {
 		return ""
@@ -340,6 +344,8 @@ func tierBadgeHTML(ruleID string) string {
 	switch info.Tier() {
 	case TierProvisional:
 		out += ` <span class="tier tier-provisional" title="Measured precision is promising but the sample is small">provisional</span>`
+	case TierDeterministic:
+		out += ` <span class="tier tier-deterministic" title="Finding follows from Python/pytest semantics, not a heuristic">deterministic</span>`
 	case TierLow:
 		out += ` <span class="tier tier-low" title="Rule precision is estimated or below the provisional bar">low precision</span>`
 	}
@@ -375,9 +381,9 @@ func writeHeroMain(b *strings.Builder, score Score) {
 	b.WriteString("</div>\n</div>\n")
 }
 
-// writeHeroSecondary writes the small provisional / tests-scanned line.
+// writeHeroSecondary writes the small provisional / deterministic / tests-scanned line.
 func writeHeroSecondary(b *strings.Builder, score Score) {
-	line := fmt.Sprintf("%d provisional", score.ProvisionalCount)
+	line := fmt.Sprintf("%d provisional · %d deterministic", score.ProvisionalCount, score.DeterministicCount)
 	if score.Tests > 0 {
 		line += fmt.Sprintf(" · %d tests in %d files", score.Tests, score.Files)
 	} else {
@@ -399,9 +405,9 @@ func writeDisplayCaption(b *strings.Builder, score Score) {
 	case score.ShowAll:
 		msg = "Showing all findings (--all): every severity and precision tier. Only actionable findings count toward the headline number."
 	case score.ShowLow:
-		msg = "Showing actionable, provisional and low-precision findings (--show-low-precision); errors and warnings only (focus)."
+		msg = "Showing actionable, provisional, deterministic and low-precision findings (--show-low-precision); errors and warnings only (focus)."
 	default:
-		msg = "Showing actionable and provisional findings only (errors and warnings from rules with measured precision). Use --all for everything, --show-low-precision to add estimated rules."
+		msg = "Showing actionable, provisional and deterministic findings only (errors and warnings from measured or semantic rules). Use --all for everything, --show-low-precision to add estimated rules."
 	}
 	if score.Trend != nil && score.Trend.CurrentPreBaseline {
 		msg += " Trend compares pre-baseline metrics; the headline count is post-baseline (new issues only)."
@@ -743,6 +749,7 @@ main { padding: 1.25rem 1.5rem 3rem; max-width: 72rem; }
   border-radius: 999px;
 }
 .tier-provisional { background: rgba(212,160,23,.15); color: var(--warning); }
+.tier-deterministic { background: rgba(61,154,120,.15); color: var(--accent); }
 .tier-low { background: rgba(139,154,171,.12); color: var(--muted); }
 .prec-info { font-family: var(--mono); color: var(--muted); }
 .rule-id {
