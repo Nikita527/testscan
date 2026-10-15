@@ -33,6 +33,7 @@ func TestCorpus(t *testing.T) {
 		{"assert-equals-same", rules.NewAssertEqualsSame(), "testdata/assert_equals_same", "test_same.py", "assert-equals-same", 2},
 		{"snapshot-only", rules.NewSnapshotOnly(), "testdata/snapshot_only", "test_snap.py", "snapshot-only", 1},
 		{"overmocked-io", rules.NewOvermockedIO(), "testdata/overmocked_io", "test_io.py", "overmocked-io", 4},
+		{"overmocked-lock", rules.NewOvermockedLock(), "testdata/overmocked_lock", "test_django_sfu.py", "overmocked-lock", 4},
 		{"test-imports-implementation-private", rules.NewPrivateImport(), "testdata/test_imports_implementation_private", "test_priv.py", "test-imports-implementation-private", 1},
 		{"no-behavior-change", rules.NewNoBehaviorChange(), "testdata/no_behavior_change", "test_type.py", "no-behavior-change", 3},
 		{"fake-mock-assert", rules.NewFakeMockAssert(), "testdata/fake_mock_assert", "test_fake.py", "fake-mock-assert", 2},
@@ -107,8 +108,276 @@ func TestCorpus(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	got := rules.Default()
-	if len(got) != 24 {
-		t.Fatalf("got %d rules, want 24", len(got))
+	if len(got) != 25 {
+		t.Fatalf("got %d rules, want 25", len(got))
+	}
+}
+
+func TestOvermockedLock_AllHitFiles(t *testing.T) {
+	res, err := testRun(t, []string{"testdata/overmocked_lock"}, rules.NewOvermockedLock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHits := map[string]bool{
+		"test_django_sfu.py":           false,
+		"test_django_sfu_of.py":        false,
+		"test_sa_with_for_update.py":   false,
+		"test_sa_with_lockmode.py":     false,
+		"test_monkeypatch_lock.py":     false,
+		"test_multiline_with_patch.py": false,
+		"test_attr_replace_lock.py":    false,
+		"test_attr_replace_fixture.py": false,
+		"test_setattr_lock.py":         false,
+	}
+	for _, f := range res.Findings {
+		base := filepath.Base(f.File)
+		parent := filepath.Base(filepath.Dir(f.File))
+		if parent != "hit" {
+			t.Errorf("finding outside hit/: %s", f.File)
+			continue
+		}
+		if _, ok := wantHits[base]; ok {
+			wantHits[base] = true
+		}
+	}
+	for name, ok := range wantHits {
+		if !ok {
+			t.Errorf("missing finding for hit/%s", name)
+		}
+	}
+}
+
+func TestOvermockedLock_NeighborNonLockClean(t *testing.T) {
+	res, err := testRun(t, []string{"testdata/overmocked_lock/clean"}, rules.NewOvermockedLock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("clean/ must stay clean, got %v", res.Findings)
+	}
+}
+
+func TestOvermockedLock_HeuristicRespectsRaises(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+import pytest
+
+@patch("app.models.Order.objects.select_for_update")
+def test_lock_conflict(mock_sfu):
+    mock_sfu.side_effect = OperationalError("locked")
+    with pytest.raises(OperationalError):
+        process_order(1)
+    mock_sfu.assert_called()
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_lock_raises.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 0 {
+		t.Fatalf("heuristic must respect pytest.raises, got %v", got)
+	}
+}
+
+func TestOvermockedLock_HeuristicRespectsAssertEqual(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+import unittest
+
+class T(unittest.TestCase):
+    @patch("app.models.Order.objects.select_for_update")
+    def test_lock(self, mock_sfu):
+        process_order(1)
+        mock_sfu.assert_called_once()
+        self.assertEqual(order.status, "done")
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_lock_assert_equal.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 0 {
+		t.Fatalf("heuristic must respect self.assertEqual, got %v", got)
+	}
+}
+
+func TestOvermockedLock_HeuristicHit(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+
+@patch("app.models.Order.objects.select_for_update")
+def test_race_uses_lock(mock_sfu):
+    process_order(1)
+    mock_sfu.assert_called_once()
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_django_sfu.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 1 || got[0].Rule != "overmocked-lock" {
+		t.Fatalf("heuristic want 1 overmocked-lock, got %v", got)
+	}
+}
+
+func TestOvermockedLock_HeuristicMultilineHit(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+
+def test_race_multiline_with_patch():
+    with patch(
+        "app.models.Order.objects.select_for_update"
+    ) as mock_sfu:
+        process_order(1)
+        mock_sfu.assert_called_once()
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_multiline_with_patch.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 1 || got[0].Rule != "overmocked-lock" {
+		t.Fatalf("heuristic multiline want 1 overmocked-lock, got %v", got)
+	}
+}
+
+func TestOvermockedLock_HeuristicAttrReplaceHit(t *testing.T) {
+	src := []byte(`from unittest.mock import MagicMock
+
+def test_race_attr_replace_lock():
+    mock_sfu = MagicMock()
+    Order.objects.select_for_update = mock_sfu
+    process_order(1)
+    mock_sfu.assert_called_once()
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_attr_replace_lock.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 1 || got[0].Rule != "overmocked-lock" {
+		t.Fatalf("heuristic attr-replace want 1 overmocked-lock, got %v", got)
+	}
+}
+
+func TestOvermockedLock_IgnoresCommentNeedles(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+
+def test_comment_mentions_lock():
+    # Prefer monkeypatch; SUT uses select_for_update in production
+    with patch("app.services.notify") as mock_notify:
+        notify()
+        mock_notify.assert_called_once()
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_comment_mentions_lock.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 0 {
+		t.Fatalf("comment needles must not hit, got %v", got)
+	}
+}
+
+func TestOvermockedLock_SetattrRequiresMockRHS(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+
+def test_setattr_restore_lock():
+    original = Order.objects.select_for_update
+    setattr(Order.objects, "select_for_update", original)
+    with patch("app.services.notify") as mock_notify:
+        notify()
+        mock_notify.assert_called_once()
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_setattr_restore_lock.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 0 {
+		t.Fatalf("setattr restore must not hit, got %v", got)
+	}
+}
+
+func TestOvermockedLock_HeuristicIgnoresAssertEqualInComment(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+
+@patch("app.models.Order.objects.select_for_update")
+def test_race_uses_lock(mock_sfu):
+    # docs mention self.assertEqual( for other tests
+    process_order(1)
+    mock_sfu.assert_called_once()
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_assert_equal_comment.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 1 || got[0].Rule != "overmocked-lock" {
+		t.Fatalf("assertEqual in comment must not clear heuristic hit, got %v", got)
+	}
+}
+
+func TestOvermockedLock_HeuristicIgnoresAssertWordInComment(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+
+@patch("app.models.Order.objects.select_for_update")
+def test_race_uses_lock(mock_sfu):
+    # assert status in other suite
+    process_order(1)
+    mock_sfu.assert_called_once()
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_assert_word_comment.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 1 || got[0].Rule != "overmocked-lock" {
+		t.Fatalf("assert in comment must not clear heuristic hit, got %v", got)
+	}
+}
+
+func TestOvermockedLock_HeuristicAssertCalledOnlyInComment(t *testing.T) {
+	src := []byte(`from unittest.mock import patch
+
+@patch("app.models.Order.objects.select_for_update")
+def test_no_real_mock_assert(mock_sfu):
+    # sibling uses mock_sfu.assert_called_once()
+    process_order(1)
+`)
+	got := rules.NewOvermockedLock().Check(scan.File{
+		Path:                   "test_assert_called_comment.py",
+		Content:                src,
+		AllowHeuristicFallback: true,
+		ModelOK:                true,
+		ModelErr:               parse.ErrUnavailable,
+	})
+	if len(got) != 0 {
+		t.Fatalf("assert_called only in comment must not heuristic-hit, got %v", got)
+	}
+}
+
+func TestOvermockedLock_PatchCommentUnbalancedParenClean(t *testing.T) {
+	res, err := testRun(t, []string{"testdata/overmocked_lock/clean/test_patch_comment_unbalanced_paren.py"}, rules.NewOvermockedLock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("unbalanced paren in patch comment must stay clean, got %v", res.Findings)
 	}
 }
 

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Default rule `overmocked-lock` (warning, estimated/`low`): flags tests that patch or replace a locking API (Django `select_for_update` / `select_for_update_of`, SQLAlchemy `with_for_update` / legacy `with_lockmode`) and only assert on the mock. Shown with `--show-low-precision` / `--all` until precision is measured. Detection covers multiline `with patch(...)`, `setattr`/`monkeypatch.setattr` (Mock value required), and `.lock_leaf = mock` replaces; `#` comments ignored (including unbalanced parens in comments when spanning calls); scoped to the test's own decorators/body (no neighbor lookback). Heuristic fallback is file-scoped and treats `pytest.raises` / `assertRaises` / anchored unittest `assertEqual(` on code lines as behavioral coverage.
+
 ## 0.6.0 - 2026-10-13
 
 Default view shows semantic (deterministic) findings again; agent-hook docs cover more IDEs.
@@ -212,7 +218,7 @@ Accuracy roadmap + Health Score. CI that parsed `--format json` as a bare findin
 
 Initial tagged release: Go CLI + PyPI launcher, default AI-test smell rules, text/JSON/SARIF/HTML output, baseline, config, and pre-commit docs.
 
-[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.6.0...HEAD
 [0.4.0]: https://github.com/Nikita527/testscan/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Nikita527/testscan/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Nikita527/testscan/releases/tag/v0.2.0

@@ -268,6 +268,7 @@ Default rules are on unless `--disable` / `disable`. Opt-in rules are off until 
 | assert-equals-same | warning | `assert <expr> == <expr>` with identical left and right text |
 | snapshot-only | warning | snapshot tooling without a non-snapshot `assert ` |
 | overmocked-io | warning | IO patched (`open` / pathlib / requests / httpx / urllib) and only mock asserts |
+| overmocked-lock | warning | lock API patched/replaced (Django `select_for_update*` / SQLAlchemy `with_for_update` / `with_lockmode`; multiline patch, setattr, attr assign) and only mock asserts |
 | test-imports-implementation-private | note | one finding per import of private `_name` / `pkg._sub` (not `_UPPER_CASE`); message suggests a public submodule |
 | no-behavior-change | warning | every assert is only `isinstance` / `type(...)` |
 | fake-mock-assert | warning | typo / non-existent mock assert method |
@@ -315,8 +316,9 @@ testscan is a cheap pre-filter for AI-written tests. **Mutation orchestration** 
 8. `duplicate-test-name` — same bare name in different classes is OK (key is `qualname`); duplicates share class+name.
 9. `snapshot-only` — any non-snapshot `assert ` line clears the rule; snapshot APIs outside the needle list are missed.
 10. `overmocked-io` — line must mention `patch` plus an IO target; other mock styles may miss or over-fire.
-11. `test-imports-implementation-private` — intentional private imports (white-box tests) still note; `_UPPER_CASE` constants, `tests.*`, and relative `test_*` helpers are ignored; top-level stdlib `import _thread` / `_ast` is ignored; one finding per import statement.
-12. `no-behavior-change` — a single value assert anywhere in the file clears it; type-check helpers not named `isinstance`/`type` are missed.
+11. `overmocked-lock` — patch/setattr call span (incl. multiline) or `.lock_leaf = mock` replace; no lookback into neighboring tests; heuristic fallback is file-scoped; does not prove absence of a second concurrent actor; helper names containing a lock leaf may false-positive.
+12. `test-imports-implementation-private` — intentional private imports (white-box tests) still note; `_UPPER_CASE` constants, `tests.*`, and relative `test_*` helpers are ignored; top-level stdlib `import _thread` / `_ast` is ignored; one finding per import statement.
+13. `no-behavior-change` — a single value assert anywhere in the file clears it; type-check helpers not named `isinstance`/`type` are missed.
 
 ## Tests
 

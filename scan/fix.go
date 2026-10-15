@@ -14,6 +14,7 @@ var RuleFix = map[string]string{
 	"assert-equals-same":                  "compare the actual result to an independent expected value instead of to itself",
 	"snapshot-only":                       "add an explicit assert on one or two key fields next to the snapshot assert",
 	"overmocked-io":                       "assert on the return value or stored result of the code under test, not only on the patched IO mock",
+	"overmocked-lock":                     "assert on row state or a concurrent conflict, not only that the lock API was called",
 	"test-imports-implementation-private": "import and test the public API instead of the underscore-prefixed implementation name",
 	"no-behavior-change":                  "replace the isinstance/type check with an assert on a concrete value or behavior",
 	"fake-mock-assert":                    "fix the mock assertion to a real method, e.g. `mock.assert_called_once_with(...)`",

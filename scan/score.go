@@ -154,6 +154,7 @@ var RulePrecision = map[string]PrecisionInfo{
 	// Still estimated (heuristic) despite precision 1.0 — stay low until measured.
 	"no-behavior-change":  est(1.0),
 	"overmocked-io":       est(1.0),
+	"overmocked-lock":     est(0.5),
 	"snapshot-only":       est(1.0),
 	"swallowed-exception": est(1.0),
 	"todo-test":           est(1.0),

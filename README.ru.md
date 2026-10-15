@@ -257,6 +257,7 @@ Go вызывает `parse.File` / batch один раз на файл внут�
 | assert-equals-same | warning | `assert <expr> == <expr>` с одинаковым текстом слева и справа |
 | snapshot-only | warning | snapshot-инструменты без обычного (не-snapshot) `assert ` |
 | overmocked-io | warning | пропатчен IO (`open` / pathlib / requests / httpx / urllib) и только mock-assert |
+| overmocked-lock | warning | пропатчен/подменён lock API (Django `select_for_update*` / SQLAlchemy `with_for_update` / `with_lockmode`; multiline patch, setattr, attr assign) и только mock-assert |
 | test-imports-implementation-private | note | одна находка на import приватного `_name` / `pkg._sub` (не `_UPPER_CASE`); message — кандидат на публичный подмодуль |
 | no-behavior-change | warning | все assert — только `isinstance` / `type(...)` |
 | fake-mock-assert | warning | опечатка / несуществующий mock-assert |
@@ -304,8 +305,9 @@ testscan — дешёвый префильтр для AI-тестов. **Орк�
 8. `duplicate-test-name` — одинаковое голое имя в разных классах OK (ключ — `qualname`); дубликат = class+name.
 9. `snapshot-only` — любой не-snapshot `assert ` снимает правило; snapshot-API вне списка игл не видны.
 10. `overmocked-io` — нужна строка с `patch` и IO-целью; другие стили mock могут промахнуться или сработать лишний раз.
-11. `test-imports-implementation-private` — намеренный white-box импорт `_private` всё равно note; константы `_UPPER_CASE`, `tests.*` и relative `test_*` helpers игнорируются; top-level stdlib `import _thread` / `_ast` игнорируется; одна находка на import-statement.
-12. `no-behavior-change` — один value-assert в файле снимает правило; type-check хелперы не через `isinstance`/`type` не учитываются.
+11. `overmocked-lock` — call span `patch`/`setattr` (включая multiline) или replace `.lock_leaf = mock`; без lookback в соседние тесты; heuristic fallback на весь файл; не доказывает отсутствие второго concurrent actor; имена хелперов с lock-leaf могут давать false positive.
+12. `test-imports-implementation-private` — намеренный white-box импорт `_private` всё равно note; константы `_UPPER_CASE`, `tests.*` и relative `test_*` helpers игнорируются; top-level stdlib `import _thread` / `_ast` игнорируется; одна находка на import-statement.
+13. `no-behavior-change` — один value-assert в файле снимает правило; type-check хелперы не через `isinstance`/`type` не учитываются.
 
 ## Тесты
 

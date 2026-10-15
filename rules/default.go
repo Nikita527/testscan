@@ -13,6 +13,7 @@ func Default() []scan.Rule {
 		NewAssertEqualsSame(),
 		NewSnapshotOnly(),
 		NewOvermockedIO(),
+		NewOvermockedLock(),
 		NewPrivateImport(),
 		NewNoBehaviorChange(),
 		NewFakeMockAssert(),

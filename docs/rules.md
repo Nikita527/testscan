@@ -311,6 +311,53 @@ def test_ok(mock_open):
 
 ---
 
+## overmocked-lock
+
+**Severity:** warning  
+**When:** a locking API is patched or replaced and only mock asserts remain. Covers Django (`select_for_update`, `select_for_update_of`) and SQLAlchemy (`with_for_update`, legacy `with_lockmode`). Detection: `@patch` / `patch` / `monkeypatch.setattr` / `setattr` whose call span (including multiline `with patch(...)`) mentions a lock leaf; for `setattr` the value must look like a Mock (`MagicMock` / `mock_*` / same name used in `assert_called*`); or attribute assign `.select_for_update = mock` (and siblings) under the same Mock rules. Comments are ignored. Neighboring tests are not considered. Does not prove absence of a second concurrent actor.
+
+**Known limitations:** patch target stored only in a variable (no leaf in the call span) is a false negative; a helper whose name contains a lock leaf (e.g. `with_for_update_helper`) can false-positive. Heuristic fallback (no AST) is **file-scoped**: any behavioral assert / `raises` / anchored unittest `assertEqual(` on a **code** line (comments stripped) clears the finding. Call-span matching ignores `#` comments when counting parentheses.
+
+Hit:
+
+```python
+from unittest.mock import patch
+
+@patch("app.models.Order.objects.select_for_update")
+def test_race_uses_lock(mock_sfu):
+    process_order(1)
+    mock_sfu.assert_called_once()
+```
+
+```python
+from unittest.mock import patch
+
+@patch("app.services.orders.select.with_for_update")
+def test_race_uses_sa_lock(mock_wfu):
+    process_order(1)
+    mock_wfu.assert_called_once()
+```
+
+Clean:
+
+```python
+from unittest.mock import patch
+
+@patch("app.models.Order.objects.select_for_update")
+def test_ok(mock_sfu):
+    process_order(1)
+    mock_sfu.assert_called_once()
+    assert order.status == "done"
+```
+
+```python
+def test_uses_real_lock():
+    qs = Order.objects.select_for_update().filter(id=1)
+    assert qs.exists()
+```
+
+---
+
 ## test-imports-implementation-private
 
 **Severity:** note  
