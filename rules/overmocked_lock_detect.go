@@ -336,10 +336,6 @@ func lockPatchSpan(lines []string, start, end int) string {
 	return strings.Join(parts, "\n")
 }
 
-func lockPatchInContent(src string) bool {
-	return lockPatchInContentWithAssertHints(src, "")
-}
-
 // lockPatchInContentWithAssertHints scans for lock patches. assertSrc, when set,
 // allows setattr value names that appear in mock asserts elsewhere in assertSrc.
 func lockPatchInContentWithAssertHints(src, assertSrc string) bool {
