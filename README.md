@@ -279,9 +279,9 @@ Default rules are on unless `--disable` / `disable`. Opt-in rules are off until 
 | assert-in-emptyable-loop | warning | asserts only inside for over emptyable (`other`) iterable; skips literals / `range` / consts / pre-loop assert |
 | weak-assert | note | only bare truthy name / is not None / len > 0; shallow rejects / GET 200; not `len==0` or bool attributes |
 | sleep-in-test | warning | `time.sleep` / `asyncio.sleep` (skips `sleep(0)` and deadline polling loops) |
-| wall-clock-in-test | note | `datetime.now` / `date.today` without freeze (skips pure call-arg input uses) |
+| wall-clock-in-test | note | `datetime.now` / `date.today` without freeze (skips pure call-arg; **hidden by default**) |
 | skip-without-reason | warning | skip/xfail without reason or strict |
-| near-duplicate-test | note | near-identical bodies after literal norm; **provisional — shown by default**; skips opposite polarity / different SUT / enums; 3+ → parametrize sketch |
+| near-duplicate-test | note | near-identical bodies after literal norm; **provisional — shown by default** (text collapses to one summary per file; `--all` lists each); skips opposite polarity / different SUT / enums; 3+ → parametrize sketch |
 | self-patched-sut | warning | patches the SUT under test and asserts the patch |
 | expected-recomputed | warning | assert RHS recomputes expected via SUT/helper call (skips CamelCase constructors / `f(x)==f(x)`) |
 | commented-assert | note | commented-out `# assert` / `# self.assert` |
