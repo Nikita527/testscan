@@ -13,9 +13,10 @@ Precision-first: make the default view trustworthy after the 0.7.0 agent-repo be
 
 - **`todo-test`** and **`assert-true`** are tier **`deterministic`**: shown by default again and affect `--fail-on` / SARIF / Code Quality (they still do **not** count toward `actionable_count` / `--compare` trend).
 - **`overbroad-equality`** is **opt-in** (off unless `--enable overbroad-equality` / `enable = ["overbroad-equality"]`).
+- **`wall-clock-in-test`** is **hidden by default** (`neverFocus`). Re-enable with `--all` / `--enable wall-clock-in-test` / `--rule wall-clock-in-test`.
 - **Finding fingerprints** now include an occurrence index (identical shapes in one test no longer collide). Existing `--baseline` files need a one-time re-save.
 
-**Migration:** if CI starts failing on newly visible `todo-test` / `assert-true` findings, either fix them, add `# testscan: ignore[...]`, use `--baseline`, or `--disable todo-test --disable assert-true`. To keep scanning huge-literal equality checks, add `overbroad-equality` to `enable`. Re-save baselines after upgrade.
+**Migration:** if CI starts failing on newly visible `todo-test` / `assert-true` findings, either fix them, add `# testscan: ignore[...]`, use `--baseline`, or `--disable todo-test --disable assert-true`. To keep scanning huge-literal equality checks, add `overbroad-equality` to `enable`. To see wall-clock findings again, use `--all` or `--enable wall-clock-in-test`. Re-save baselines after upgrade.
 
 ### Added
 

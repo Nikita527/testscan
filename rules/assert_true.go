@@ -89,31 +89,64 @@ func assertInsideTrapRaises(t parse.TestFunc, lineno int) bool {
 }
 
 // assertInElseBranch reports whether lineno sits under an if/elif `else:`
-// (or a match `case _:` / `case Name:`) exhaustiveness guard — not for/while/try
-// else-clauses, which are reachable.
+// (or a match `case _:`) exhaustiveness guard — not for/while/try else-clauses,
+// which are reachable. Handles same-line forms (`else: assert False`,
+// `case _: assert False`) as well as indented bodies.
 func assertInElseBranch(lines []string, lineno int) bool {
 	if lineno < 1 || lineno > len(lines) {
 		return false
 	}
-	indent := leadingSpaces(lines[lineno-1])
+	cur := lines[lineno-1]
+	trim := strings.TrimSpace(cur)
+	indent := leadingSpaces(cur)
+
+	// Same-line: assert shares the line with else: / case _:
+	if body, ok := sameLineCompoundBody(trim, "else:"); ok && body != "" {
+		return elseBelongsToIf(lines, lineno-1, indent)
+	}
+	if isMatchDefaultCase(trim) && matchDefaultSameLineBody(trim) != "" {
+		return true
+	}
+
 	for i := lineno - 2; i >= 0; i-- {
-		trim := strings.TrimSpace(lines[i])
-		if trim == "" || strings.HasPrefix(trim, "#") {
+		prev := strings.TrimSpace(lines[i])
+		if prev == "" || strings.HasPrefix(prev, "#") {
 			continue
 		}
 		ind := leadingSpaces(lines[i])
 		if ind >= indent {
 			continue
 		}
-		if trim == "else:" || strings.HasPrefix(trim, "else:") {
+		if prev == "else:" || strings.HasPrefix(prev, "else:") {
 			return elseBelongsToIf(lines, i, ind)
 		}
-		if isMatchDefaultCase(trim) {
+		if isMatchDefaultCase(prev) {
 			return true
 		}
 		return false
 	}
 	return false
+}
+
+// sameLineCompoundBody returns the suite after a leading keyword like "else:"
+// when it appears on the same line (non-empty body).
+func sameLineCompoundBody(trim, keyword string) (string, bool) {
+	if !strings.HasPrefix(trim, keyword) {
+		return "", false
+	}
+	return strings.TrimSpace(trim[len(keyword):]), true
+}
+
+// matchDefaultSameLineBody returns the suite after `case _:` when non-empty.
+func matchDefaultSameLineBody(trim string) string {
+	if !strings.HasPrefix(trim, "case ") {
+		return ""
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(trim, "case "))
+	if !strings.HasPrefix(rest, "_:") {
+		return ""
+	}
+	return strings.TrimSpace(rest[len("_:"):])
 }
 
 // elseBelongsToIf is true when the else at elseIdx (indent elseInd) closes an

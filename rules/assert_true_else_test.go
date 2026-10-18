@@ -97,3 +97,50 @@ def test_match(x):
 		t.Fatalf("case _: assert False must be clean, got %+v", res.Findings)
 	}
 }
+
+func TestAssertTrue_SameLineElseAndCaseClean(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "test_same_line.py"), `
+def test_else_same_line(x):
+    if isinstance(x, int):
+        assert x > 0
+    else: assert False
+
+def test_case_same_line(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _: assert False
+`)
+	res, err := testRun(t, []string{dir}, rules.NewAssertTrue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("same-line else:/case _: assert False must be clean, got %+v", res.Findings)
+	}
+}
+
+func TestAssertTrue_SameLineForElseTryElseFlagged(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "test_same_line_reachable.py"), `
+def test_for_else_same_line():
+    for x in []:
+        break
+    else: assert False
+
+def test_try_else_same_line():
+    try:
+        x = 1
+    except Exception:
+        raise
+    else: assert False
+`)
+	res, err := testRun(t, []string{dir}, rules.NewAssertTrue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 2 {
+		t.Fatalf("same-line for/else and try/else must be flagged, got %+v", res.Findings)
+	}
+}
