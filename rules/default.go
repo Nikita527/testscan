@@ -29,7 +29,7 @@ func Default() []scan.Rule {
 		NewSelfPatchedSUT(),
 		NewExpectedRecomputed(),
 		NewCommentedAssert(),
-		NewOverbroadEquality(),
+		NewAssertInsideBroadRaises(),
 	}
 }
 
@@ -45,6 +45,8 @@ func Optional() []scan.Rule {
 		NewNoAssert(),
 		NewMockOnlyAssert(),
 		NewMockTautology(),
+		// overbroad-equality: 0% precision on agent corpora (exact huge literals are strong asserts).
+		NewOverbroadEquality(),
 	}
 }
 

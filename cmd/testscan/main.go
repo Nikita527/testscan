@@ -299,25 +299,25 @@ func parseArgs(argv []string) (cliArgs, error) {
 			if i >= len(argv) {
 				return cliArgs{}, fmt.Errorf("missing value for --rule")
 			}
-			out.only = append(out.only, argv[i])
+			out.only = append(out.only, splitRuleIDs(argv[i])...)
 		case strings.HasPrefix(a, "--rule="):
-			out.only = append(out.only, strings.TrimPrefix(a, "--rule="))
+			out.only = append(out.only, splitRuleIDs(strings.TrimPrefix(a, "--rule="))...)
 		case a == "--enable":
 			i++
 			if i >= len(argv) {
 				return cliArgs{}, fmt.Errorf("missing value for --enable")
 			}
-			out.enable = append(out.enable, argv[i])
+			out.enable = append(out.enable, splitRuleIDs(argv[i])...)
 		case strings.HasPrefix(a, "--enable="):
-			out.enable = append(out.enable, strings.TrimPrefix(a, "--enable="))
+			out.enable = append(out.enable, splitRuleIDs(strings.TrimPrefix(a, "--enable="))...)
 		case a == "--disable":
 			i++
 			if i >= len(argv) {
 				return cliArgs{}, fmt.Errorf("missing value for --disable")
 			}
-			out.disable = append(out.disable, argv[i])
+			out.disable = append(out.disable, splitRuleIDs(argv[i])...)
 		case strings.HasPrefix(a, "--disable="):
-			out.disable = append(out.disable, strings.TrimPrefix(a, "--disable="))
+			out.disable = append(out.disable, splitRuleIDs(strings.TrimPrefix(a, "--disable="))...)
 		case a == "--baseline":
 			i++
 			if i >= len(argv) {
@@ -403,6 +403,20 @@ func parseArgs(argv []string) (cliArgs, error) {
 	}
 
 	return out, nil
+}
+
+// splitRuleIDs splits a CLI rule-ID argument on commas so
+// `--enable a,b` and `--enable a --enable b` are equivalent.
+func splitRuleIDs(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func writeFindings(w io.Writer, findings []scan.Finding, score scan.Score, format string) error {

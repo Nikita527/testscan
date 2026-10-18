@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -33,7 +34,8 @@ func assertTrueFromAST(file scan.File, model parse.Model) []scan.Finding {
 		for _, a := range t.Asserts {
 			switch a.Kind {
 			case "truthy":
-				if !isConstantTruthyAssert(a.Text) {
+				msg, ok := alwaysTrueMessage(a.Text)
+				if !ok {
 					continue
 				}
 				findings = append(findings, scan.Finding{
@@ -41,7 +43,7 @@ func assertTrueFromAST(file scan.File, model parse.Model) []scan.Finding {
 					Line:     a.Lineno,
 					Rule:     "assert-true",
 					Severity: "warning",
-					Message:  "assert of a constant (True/1/\"…\") found in test",
+					Message:  msg,
 					QualName: q,
 				})
 			case "unittest_bool":
@@ -57,6 +59,40 @@ func assertTrueFromAST(file scan.File, model parse.Model) []scan.Finding {
 		}
 	}
 	return findings
+}
+
+// reOrTruthyConstant matches "... or True" / "... or 1" / `... or "x"` style
+// agent hedged asserts that can never fail.
+var reOrTruthyConstant = regexp.MustCompile(`(?i)\bor\s+(True|1|1\.0|"[^"]+"|'[^']+')\s*(,|$)`)
+
+// alwaysTrueMessage classifies constant / tautology asserts.
+func alwaysTrueMessage(text string) (string, bool) {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return "", false
+	}
+	if reOrTruthyConstant.MatchString(t) {
+		return "assert is always true (`… or <truthy constant>`)", true
+	}
+	if !isConstantTruthyAssert(t) {
+		return "", false
+	}
+	core := t
+	if i := strings.Index(core, ","); i >= 0 {
+		core = strings.TrimSpace(core[:i])
+	}
+	switch core {
+	case "True":
+		return "assert of a constant (True) found in test", true
+	case "False":
+		return "assert of a constant (False) found in test", true
+	case "None":
+		return "assert of a constant (None) found in test", true
+	}
+	if isQuotedStringLiteral(core) {
+		return "assert of a non-empty string literal is always true; did you mean `in <result>`?", true
+	}
+	return "assert of a constant (True/1/\"…\") found in test", true
 }
 
 // isConstantTruthyAssert reports assert True / False / None / 1 / "str" style constants.

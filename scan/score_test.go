@@ -239,6 +239,7 @@ func TestCatalogDeterministicAllowlist(t *testing.T) {
 	want := map[string]bool{
 		"assert-tuple": true, "fake-mock-assert": true, "duplicate-test-name": true,
 		"empty-test": true, "assert-equals-same": true, "skip-without-reason": true,
+		"assert-true": true, "todo-test": true, "assert-inside-broad-raises": true,
 	}
 	for id, info := range scan.RulePrecision {
 		got := info.Source == scan.SourceDeterministic
@@ -251,7 +252,7 @@ func TestCatalogDeterministicAllowlist(t *testing.T) {
 			t.Errorf("RuleTier(%s)=%s", id, scan.RuleTier(id))
 		}
 	}
-	for _, id := range []string{"todo-test", "swallowed-exception", "snapshot-only"} {
+	for _, id := range []string{"swallowed-exception", "snapshot-only"} {
 		if scan.RuleTier(id) != scan.TierLow {
 			t.Errorf("neighbor %s must stay low, got %s", id, scan.RuleTier(id))
 		}
@@ -262,6 +263,7 @@ func TestFilterForDisplay_DeterministicAllowlistPasses(t *testing.T) {
 	ids := []string{
 		"assert-tuple", "fake-mock-assert", "duplicate-test-name",
 		"empty-test", "assert-equals-same", "skip-without-reason",
+		"assert-true", "todo-test", "assert-inside-broad-raises",
 	}
 	for _, id := range ids {
 		in := []scan.Finding{{Rule: id, Severity: "error", File: "t.py", Line: 1}}

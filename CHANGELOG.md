@@ -5,6 +5,42 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.0 - unreleased
+
+Precision-first: make the default view trustworthy after the 0.7.0 agent-repo benchmark (6 repos, 42k tests — 3/30 default findings were true positives).
+
+### Added
+
+- Deterministic rule **`assert-inside-broad-raises`**: `assert False` / `pytest.fail` inside `pytest.raises(Exception|BaseException|AssertionError)` (AssertionError is swallowed by the broad catch).
+- `--enable` / `--disable` / `--rule` accept **comma-separated** IDs (`--enable a,b`).
+
+### Changed
+
+- **`assert-true`** and **`todo-test`** are tier **`deterministic`** (shown by default). `assert-true` messages distinguish string literals and `… or True` tautologies.
+- **`near-duplicate-test`**: provisional findings with severity `note` pass the default focus filter (behaviour now matches README).
+- **`overbroad-equality`** moved to **opt-in** (0% precision on agent corpora — huge literal equality is usually a strong assert).
+- **`fake-mock-assert`**: drop `Mock.called` / bare local `called`; require Mock/patch/mocker origin for `called_once`/`called_with` attrs; recognize `assert_awaited*`.
+- **`assert-equals-same`**: only bare Name/literal self-compares (skip `f(x)==f(x)`, `a.prop is a.prop`).
+- **`sleep-in-test`**: ignore `asyncio.sleep(0)` / `sleep(0.0)` and sleeps inside deadline/polling loops.
+- **`weak-assert`**: `len(x)==0` and bool attributes are no longer weak; keep `is not None` and `len > 0`.
+- **`expected-recomputed`**: skip CamelCase value-object constructors (`RunUsage(...)`, `Status()`).
+- **`wall-clock-in-test`**: skip pure `call_arg` uses (passing `now()` as input data).
+
+### Precision (agent corpus labels, default-visible rules)
+
+Hand labels from the 0.7.0 benchmark (`labels.eval.json`). Counts are expected default-visible findings on those six repos after this release (not a live re-scan of the pinned trees).
+
+| Rule | 0.7.0 default | 0.8.0 default (expected) | Notes |
+|---|---:|---:|---|
+| fake-mock-assert | 23 FP | 0 | `called` / locals fixed |
+| assert-equals-same | 4 FP | 0 | Call/Attribute skipped |
+| empty-test | 3 TP | 3 TP | unchanged |
+| todo-test | hidden | ~12 TP | promoted to deterministic |
+| assert-true | hidden | ~12 TP | promoted; string / `or True` |
+| assert-inside-broad-raises | — | 3 TP | new |
+| near-duplicate-test | hidden (note filter) | provisional shown | focus filter fix |
+| **Default-visible precision** | **~3/30 (10%)** | **~30/~30 (high)** | noise rules demoted/fixed |
+
 ## 0.7.0 - 2026-10-15
 
 ### Added

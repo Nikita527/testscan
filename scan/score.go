@@ -135,29 +135,30 @@ var RulePrecision = map[string]PrecisionInfo{
 	"self-patched-sut":    est(0.55),
 	"name-body-mismatch":  Measured(0, 1),
 	"commented-assert":    est(0.55),
-	"overbroad-equality":  Measured(0, 5),
-	"assert-true":         est(0.90),
-	"sleep-in-test":       Measured(1, 1),
-	"wall-clock-in-test":  Measured(6, 6),
+	"overbroad-equality": Measured(0, 5), // opt-in as of 0.8.0 (0% on agent corpora)
+	"sleep-in-test":      Measured(1, 1),
+	"wall-clock-in-test": Measured(6, 6),
 	// Opt-in project rules — conservative until corpus-measured.
 	"error-contract-assert": est(0.55),
 	"raises-without-check":  est(0.50),
 	"missing-mirror-test":   est(0.70),
 	"rbac-mutation-guard":   est(0.45),
 	// Deterministic: follow from Python/pytest semantics (shown by default; not in actionable_count).
-	"assert-tuple":        det(1.0),
-	"fake-mock-assert":    det(1.0),
-	"duplicate-test-name": det(1.0),
-	"empty-test":          det(1.0),
-	"assert-equals-same":  det(1.0),
-	"skip-without-reason": det(1.0),
+	"assert-tuple":                det(1.0),
+	"fake-mock-assert":            det(1.0),
+	"duplicate-test-name":         det(1.0),
+	"empty-test":                  det(1.0),
+	"assert-equals-same":          det(1.0),
+	"skip-without-reason":         det(1.0),
+	"assert-true":                 det(1.0), // constant / `… or True` asserts
+	"todo-test":                   det(1.0), // skip/fail TODO markers
+	"assert-inside-broad-raises":  det(1.0), // assert False inside raises(Exception)
 	// Still estimated (heuristic) despite precision 1.0 — stay low until measured.
 	"no-behavior-change":  est(1.0),
 	"overmocked-io":       est(1.0),
 	"overmocked-lock":     est(0.5),
 	"snapshot-only":       est(1.0),
 	"swallowed-exception": est(1.0),
-	"todo-test":           est(1.0),
 }
 
 // LookupPrecision returns the catalog entry for a rule. For an unknown rule it

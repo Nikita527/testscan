@@ -15,13 +15,22 @@ var knownMockAssertLeaves = map[string]struct{}{
 	"assert_any_call":         {},
 	"assert_has_calls":        {},
 	"assert_not_called":       {},
+	// Async Mock counterparts (unittest.mock.AsyncMock).
+	"assert_awaited":           {},
+	"assert_awaited_once":      {},
+	"assert_awaited_with":      {},
+	"assert_awaited_once_with": {},
+	"assert_any_await":         {},
+	"assert_has_awaits":        {},
+	"assert_not_awaited":       {},
 }
 
+// fakeMockAttrLeaves are attributes that look like mock asserts but are not.
+// Note: "called" is intentionally absent — Mock.called is a real bool attribute.
 var fakeMockAttrLeaves = map[string]struct{}{
 	"called_once_with": {},
 	"called_with":      {},
 	"called_once":      {},
-	"called":           {},
 }
 
 type fakeMockAssert struct{}
@@ -47,6 +56,13 @@ func (fakeMockAssert) Check(file scan.File) []scan.Finding {
 			if !isFakeMockCallLeaf(leaf) {
 				continue
 			}
+			// Attr-style fakes (called_once / called_with) only when the receiver
+			// looks like a Mock/patch/mocker — never bare locals named similarly.
+			if _, attrFake := fakeMockAttrLeaves[leaf]; attrFake {
+				if !strings.Contains(c.Name, ".") || !receiverLooksLikeMock(c.Name, t) {
+					continue
+				}
+			}
 			if _, dup := seen[c.Lineno]; dup {
 				continue
 			}
@@ -64,7 +80,7 @@ func (fakeMockAssert) Check(file scan.File) []scan.Finding {
 			if a.Kind == "mock_method" || a.Kind != "truthy" {
 				continue
 			}
-			if !isFakeMockTruthyText(a.Text) {
+			if !isFakeMockTruthyText(a.Text, t) {
 				continue
 			}
 			if _, dup := seen[a.Lineno]; dup {
@@ -102,11 +118,46 @@ func isFakeMockCallLeaf(leaf string) bool {
 	return strings.HasPrefix(leaf, "assert_call")
 }
 
-func isFakeMockTruthyText(text string) bool {
-	t := strings.TrimSpace(text)
-	t = strings.TrimPrefix(t, "not ")
-	_, ok := fakeMockAttrLeaves[leafName(t)]
-	return ok
+func isFakeMockTruthyText(text string, t parse.TestFunc) bool {
+	s := strings.TrimSpace(text)
+	s = strings.TrimPrefix(s, "not ")
+	if i := strings.Index(s, ","); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	// Bare `assert called` is a local bool — not a mock smell.
+	if !strings.Contains(s, ".") {
+		return false
+	}
+	leaf := leafName(s)
+	if _, ok := fakeMockAttrLeaves[leaf]; !ok {
+		return false
+	}
+	return receiverLooksLikeMock(s, t)
+}
+
+// receiverLooksLikeMock reports whether the root of an attribute chain is a
+// Mock / patch / mocker fixture (not an arbitrary local).
+func receiverLooksLikeMock(attrExpr string, t parse.TestFunc) bool {
+	root := pathRoot(attrExpr)
+	if root == "" {
+		return false
+	}
+	rl := strings.ToLower(root)
+	if rl == "mock" || rl == "mocker" || strings.HasPrefix(rl, "mock_") ||
+		strings.HasSuffix(rl, "_mock") || strings.Contains(rl, "mock") {
+		return true
+	}
+	for _, f := range t.Fixtures {
+		if f == root || strings.EqualFold(f, "mocker") {
+			return true
+		}
+	}
+	if origin, ok := t.VarOrigins[root]; ok {
+		if isMockFactoryOrigin(origin) || strings.Contains(strings.ToLower(origin), "patch") {
+			return true
+		}
+	}
+	return nameUsedInMockAssert(t, root)
 }
 
 func editDistance(a, b string) int {

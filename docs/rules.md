@@ -86,13 +86,20 @@ def test_mutates_fixture(cart):
 ## assert-true
 
 **Severity:** warning  
-**When:** `assert True` / `assert 1` / `assert "…"`, or unittest `assertTrue`/`assertFalse` with a comparison argument (prefer `assertEqual`).
+**Tier:** deterministic  
+**When:** `assert True` / `assert 1` / `assert "…"` / `… or True`, or unittest `assertTrue`/`assertFalse` with a comparison argument (prefer `assertEqual`).
 
 Hit:
 
 ```python
 def test_assert_true():
     assert True
+
+def test_string_literal():
+    assert '"Agent1" -> "__end__";'  # missing `in result`
+
+def test_or_true():
+    assert result.is_valid or True
 ```
 
 Clean:
@@ -100,6 +107,34 @@ Clean:
 ```python
 def test_ok():
     assert value is True
+
+def test_membership():
+    assert '"Agent1" -> "__end__";' in result
+```
+
+---
+
+## assert-inside-broad-raises
+
+**Severity:** warning  
+**Tier:** deterministic  
+**When:** `assert False` / empty/`None` constant assert, or `pytest.fail(...)`, inside `pytest.raises(Exception|BaseException|AssertionError)`. The failing assert raises `AssertionError`, which the broad `raises` catches — so the test stays green even when the protected call succeeds.
+
+Hit:
+
+```python
+def test_auth():
+    with pytest.raises(Exception):
+        connect_without_key()
+        assert False
+```
+
+Clean:
+
+```python
+def test_auth():
+    with pytest.raises(PermissionError):
+        connect_without_key()
 ```
 
 ---
@@ -147,6 +182,7 @@ def test_patched_boundary():
 ## todo-test
 
 **Severity:** warning  
+**Tier:** deterministic  
 **When:** placeholder `pytest.skip()` / `pytest.fail("TODO")` / `assert False, "TODO"`, or skip/xfail decorator whose reason contains TODO/FIXME. Intentional `@pytest.mark.skip(reason=...)` is handled by `skip-without-reason`, not this rule.
 
 Hit:
@@ -239,7 +275,8 @@ def test_d():
 ## assert-equals-same
 
 **Severity:** warning  
-**When:** `assert <expr> == <expr>` with identical left and right text.
+**Tier:** deterministic  
+**When:** `assert <name|literal> == <same>` with identical left and right text. Call and attribute sides (`f(x)==f(x)`, `a.prop is a.prop`) are skipped — those are determinism / caching checks.
 
 Hit:
 
@@ -414,7 +451,8 @@ def test_ok():
 ## fake-mock-assert
 
 **Severity:** warning  
-**When:** typo or non-existent mock assert (`assert_called_once_wiht`, `mock.called_once_with(...)`, `assert mock.called_once_with`).
+**Tier:** deterministic  
+**When:** typo or non-existent mock assert (`assert_called_once_wiht`, `mock.called_once_with(...)`, `assert mock.called_once_with`). Does **not** flag real `Mock.called` or a local bool named `called`. Attr-style fakes (`called_once` / `called_with`) require a Mock/patch/mocker receiver. Known `assert_awaited*` methods are accepted.
 
 Hit:
 
@@ -428,6 +466,11 @@ Clean:
 ```python
 def test_ok():
     mock.assert_called_once_with()
+    assert mock.called
+
+def test_local_flag():
+    called = True
+    assert called
 ```
 
 ---
@@ -540,7 +583,7 @@ def test_range():
 ## weak-assert
 
 **Severity:** note  
-**When:** the only asserts in a test are weak: bare truthy (`assert x` / `assert obj.flag`), `is not None`, or `len(...)` vs `0`; or shallow `rejects_*`/`fails_*`/`invalid*` checks without error code/message; or GET-like tests with only `status_code == 200`. Does **not** flag `len(x) == N` (N≠0), `assert result.is_valid` in `accepts_*`/`passes_*`/`valid*` tests, `assert f(...)`, `assert obj.method()`, or `assert not collection`. `assert x is None` is also not weak.
+**When:** the only asserts in a test are weak: bare truthy **name** (`assert result`), `is not None`, or `len(...) > 0` / `!= 0`; or shallow `rejects_*`/`fails_*`/`invalid*` checks without error code/message; or GET-like tests with only `status_code == 200`. Does **not** flag `len(x) == 0` (exact emptiness), bool attributes (`assert obj.flag`), `len(x) == N` (N≠0), `assert result.is_valid` in `accepts_*`/`passes_*`/`valid*` tests, `assert f(...)`, `assert obj.method()`, or `assert not collection`. `assert x is None` is also not weak.
 
 Hit:
 
@@ -601,7 +644,7 @@ def test_sut_result():
 ## sleep-in-test
 
 **Severity:** warning  
-**When:** `time.sleep` / `asyncio.sleep` in a test.  
+**When:** `time.sleep` / `asyncio.sleep` in a test. Skips `sleep(0)` / `sleep(0.0)` (event-loop yield) and sleeps inside `while`/`for` polling with a deadline (`fail_after`, `wait_for`, `timeout`, …) or `break`/`return`.  
 **Note:** `--disable sleep-in-test` does **not** disable `wall-clock-in-test` (separate rule).
 
 Hit:
@@ -626,7 +669,7 @@ def test_ok():
 **Severity:** note; **warning** in timezone-aware projects  
 **When:** naive `datetime.now()` / `datetime.today()` / `datetime.utcnow()` / `date.today()` without freezegun / time-machine / `freeze_time`. Calls with a tz (`datetime.now(timezone.utc)`, `datetime.now(tz=...)`, `.astimezone()`, `.replace(tzinfo=...)`) are never reported.
 
-**Project awareness.** The project counts as timezone-aware when Django settings have `USE_TZ = True` (`DJANGO_SETTINGS_MODULE` from `pyproject.toml` / `pytest.ini` / `setup.cfg` / `tox.ini` / `manage.py`, else any `settings*.py` or `settings/` package file), or non-test sources use `django.utils.timezone` `now` / `localdate`. The scan is bounded (skips `.venv`, `venv`, `node_modules`, `.git`, `site-packages`, `tests`, `migrations`; max 5000 files) and runs once per run. In such a project the finding is a `warning` (`project uses timezone-aware dates (timezone.localdate()); naive datetime.now() diverges near midnight in non-UTC local time ...`) and is reported only when the value reaches a model/factory field, an assert, or another call's argument. It is not reported when the value is unused, sits in a `pytest.raises` body, or is passed to a call in a negative-path test (name/asserts such as `missing`, `error`, `is None`). Other projects keep the `note` for every naive read.
+**Project awareness.** The project counts as timezone-aware when Django settings have `USE_TZ = True` (`DJANGO_SETTINGS_MODULE` from `pyproject.toml` / `pytest.ini` / `setup.cfg` / `tox.ini` / `manage.py`, else any `settings*.py` or `settings/` package file), or non-test sources use `django.utils.timezone` `now` / `localdate`. The scan is bounded (skips `.venv`, `venv`, `node_modules`, `.git`, `site-packages`, `tests`, `migrations`; max 5000 files) and runs once per run. In such a project the finding is a `warning` (`project uses timezone-aware dates (timezone.localdate()); naive datetime.now() diverges near midnight in non-UTC local time ...`) and is reported only when the value reaches a model/factory field or an assert. Pure `call_arg` uses (passing `now()` as input data) are skipped in every project. Unused values stay a `note` only in non-aware projects.
 
 Hit:
 
@@ -672,6 +715,7 @@ def test_ok():
 ## near-duplicate-test
 
 **Severity:** note  
+**Tier:** provisional (shown by default, including note severity)  
 **When:** a parametrize candidate: two tests with the same body after normalizing literals that differ **only in input literals** (call args, setup). Assertions must be identical, including right-hand literals, status/enum attributes and `pytest.raises(E, match=...)` arguments; decorator lists must match; names must not be antonyms (`passes`/`dropped`, `demotes`/`retries`, `valid`/`invalid`, `with`/`without`, `is_null`/`is_not_null`, …). Tests must be adjacent in the same scope (at most one test in between), small (up to 15 lines), and must not carry two different docstrings (documented distinct scenarios). Clusters of 3+ emit one finding on the first test; pairs report on the later one ("same body and assertions as test_x:N, differing only in input literals — candidate for `@pytest.mark.parametrize`").
 
 Hit:
@@ -764,7 +808,7 @@ def test_dep_patch():
 ## expected-recomputed
 
 **Severity:** warning  
-**When:** the right-hand side of a compare assert calls the same SUT/helper already used to produce the left-hand value (recomputing the expected value). Determinism checks `f(x) == f(x)` are not flagged.
+**When:** the right-hand side of a compare assert calls the same SUT/helper already used to produce the left-hand value (recomputing the expected value). Determinism checks `f(x) == f(x)` and CamelCase value-object constructors (`RunUsage(...)`, `Status()`) are not flagged.
 
 Hit:
 
@@ -816,7 +860,8 @@ def test_ok():
 ## overbroad-equality
 
 **Severity:** note  
-**When:** an assert compares against a huge dict/list/tuple literal (long text or many commas). Skips API-contract compares whose root is `response.data` / `resp.data` / `r.data` / `*.json()` (including subscripts on top), `.values()` / `.values_list()` results, `error_details`, and sets/lists of identifier-like string literals (permission or error-code sets). Often a valid snapshot otherwise; review whether focused field checks would be clearer.
+**Opt-in** (`--enable overbroad-equality`). Off by default as of 0.8.0 (0% precision on agent corpora — exact huge literals are usually strong asserts).  
+**When:** an assert compares against a huge dict/list/tuple literal (long text or many commas). Skips API-contract compares whose root is `response.data` / `resp.data` / `r.data` / `*.json()` (including subscripts on top), `.values()` / `.values_list()` results, `error_details`, and sets/lists of identifier-like string literals (permission or error-code sets).
 
 Hit:
 

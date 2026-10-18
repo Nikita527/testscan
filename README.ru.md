@@ -78,7 +78,7 @@ testscan: 2 findings (1 error, 1 warning) · 31 tests
 - `--diff <base-ref>` — только тестовые файлы, изменённые с `base-ref` (PR-workflow).
 - `--baseline path.json` / `--compare path.json` — подавить известные находки / тренд vs предыдущий JSON.
 - `--all` — показать всё (полный вывод до 0.5). `--show-low-precision` — также **low**-тир (focus остаётся).
-- `--rule` / `--enable` / `--disable` — выбор правил; одно ID в enable и disable → exit `2`.
+- `--rule` / `--enable` / `--disable` — выбор правил (можно через запятую); одно ID в enable и disable → exit `2`.
 - `--workers N` — параллельные проверки (`0` → `runtime.NumCPU()`).
 - `-o` / `--output PATH`, `--open` — записать / открыть HTML (по умолчанию `.testscan/reports/`).
 
@@ -94,7 +94,7 @@ CI: `--diff` + `--baseline` + `codequality|sarif|json`. Exit code, SARIF и Code
 |-----|---------|---------------------------|
 | **actionable** | измерено, нижняя граница Вильсона 95% ≥ `ActionableMinWilson` (0.7) и N ≥ `ActionableMinN` (20) | да — считается в главном числе |
 | **provisional** | измерено, precision ≥ `ProvisionalMinPrecision` (0.8) и N ≥ `ProvisionalMinN` (5), но не actionable | да — тег `[provisional]` / бейдж |
-| **deterministic** | каталог `SourceDeterministic` — следует из семантики Python/pytest (allowlist из 6 правил) | да — тег `[deterministic]` / бейдж; **не** входит в `actionable_count` |
+| **deterministic** | каталог `SourceDeterministic` — следует из семантики Python/pytest (empty-test, assert-true, todo-test, fake-mock-assert, …) | да — тег `[deterministic]` / бейдж; **не** входит в `actionable_count` |
 | **low** | всё остальное: estimated, не измерено, неизвестное правило или ниже порогов | нет (`--show-low-precision` или `--all`) |
 
 N — число размеченных TP + FP правила. Estimated-записи в каталоге (включая оставшиеся `est(1.0)`-эвристики) — **low**.
@@ -250,30 +250,31 @@ Go вызывает `parse.File` / batch один раз на файл внут�
 | ID | Severity | Когда |
 |----|----------|--------|
 | empty-test | error | AST: пустое тело `test_*`/`Test*` (pass / только docstring); fallback — эвристика по функциям/файлу |
-| assert-true | warning | `assert True` / `assert 1` / `assert "…"`, или `assertTrue`/`assertFalse` со сравнением |
-| todo-test | warning | pytest.skip / fail("TODO") / assert False, "TODO" |
+| assert-true | warning | `assert True` / `assert 1` / `assert "…"` / `… or True`, или `assertTrue`/`assertFalse` со сравнением (**deterministic**) |
+| todo-test | warning | pytest.skip / fail("TODO") / assert False, "TODO" (**deterministic**) |
 | duplicate-test-name | error | AST: дубликаты имён test-функций (lineno второго); fallback — построчный разбор |
 | only-happy-path | note | >min-tests на один SUT без негативных сигналов (расширенный словарь); пропускает чистые mapper; опционально `mode = "coverage"` / `--coverage` |
-| assert-equals-same | warning | `assert <expr> == <expr>` с одинаковым текстом слева и справа |
+| assert-equals-same | warning | `assert <name\|literal> == <то же>` (не `f(x)==f(x)` / кэш атрибута) |
 | snapshot-only | warning | snapshot-инструменты без обычного (не-snapshot) `assert ` |
 | overmocked-io | warning | пропатчен IO (`open` / pathlib / requests / httpx / urllib) и только mock-assert |
 | overmocked-lock | warning | пропатчен/подменён lock API (Django `select_for_update*` / SQLAlchemy `with_for_update` / `with_lockmode`; multiline patch, setattr, attr assign) и только mock-assert |
 | test-imports-implementation-private | note | одна находка на import приватного `_name` / `pkg._sub` (не `_UPPER_CASE`); message — кандидат на публичный подмодуль |
 | no-behavior-change | warning | все assert — только `isinstance` / `type(...)` |
-| fake-mock-assert | warning | опечатка / несуществующий mock-assert |
+| fake-mock-assert | warning | опечатка / несуществующий mock-assert (не `Mock.called` и не локальный `called`) |
+| assert-inside-broad-raises | warning | `assert False` / `pytest.fail` внутри `pytest.raises(Exception\|AssertionError)` (**deterministic**) |
 | assert-tuple | warning | `assert (comparison, msg)` — tuple всегда truthy |
 | broad-raises | warning | `raises(Exception)` без конкретного класса / match, или тело из нескольких stmt |
 | swallowed-exception | warning | bare / `except Exception` без re-raise |
 | assert-in-emptyable-loop | warning | assert только внутри for по emptyable (`other`); пропускает литералы / `range` / consts / pre-loop assert |
-| weak-assert | note | только bare truthy / is not None / len vs 0; поверхностный rejects / GET 200; не `len==N` и не `accepts_*` is_valid |
-| sleep-in-test | warning | `time.sleep` / `asyncio.sleep` |
-| wall-clock-in-test | note | `datetime.now` / `date.today` без freeze |
+| weak-assert | note | только bare truthy name / is not None / len > 0; поверхностный rejects / GET 200; не `len==0` и не bool-атрибуты |
+| sleep-in-test | warning | `time.sleep` / `asyncio.sleep` (не `sleep(0)` и не polling с дедлайном) |
+| wall-clock-in-test | note | `datetime.now` / `date.today` без freeze (не чистый call-arg как вход) |
 | skip-without-reason | warning | skip/xfail без reason или strict |
-| near-duplicate-test | note | почти одинаковые тела после нормализации литералов; пропускает противоположную полярность / разный SUT / enum; 3+ → набросок parametrize |
+| near-duplicate-test | note | почти одинаковые тела после нормализации литералов; **provisional — виден по умолчанию**; пропускает противоположную полярность / разный SUT / enum; 3+ → набросок parametrize |
 | self-patched-sut | warning | патчит сам SUT и проверяет патч |
-| expected-recomputed | warning | RHS assert пересчитывает ожидаемое через SUT/хелпер (не детерминизм `f(x)==f(x)`) |
+| expected-recomputed | warning | RHS assert пересчитывает ожидаемое через SUT/хелпер (не CamelCase-конструкторы / не `f(x)==f(x)`) |
 | commented-assert | note | закомментированный `# assert` / `# self.assert` |
-| overbroad-equality | note | assert равен огромному литералу dict/list/tuple (пропускает `response.data` / `*.json()`) |
+| overbroad-equality | *opt-in* | assert равен огромному литералу dict/list/tuple (пропускает `response.data` / `*.json()`) |
 | no-assert | *opt-in* | data-flow: нет assert, зависящего от результата SUT (трассирует через присваивания/атрибуты/subscripts в вызовы проектного кода) |
 | mock-only-assert | *opt-in* | data-flow: assert на мок, не подключённый в SUT |
 | mock-tautology | *opt-in* | data-flow: assert сравнивает только значения из конфигурации мока |

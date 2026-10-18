@@ -151,6 +151,23 @@ func TestParseArgs(t *testing.T) {
 			wantShowLP: true,
 		},
 		{
+			name:       "enable_comma_separated",
+			argv:       []string{"path", "--enable", "no-assert,mock-tautology"},
+			wantRoots:  []string{"path"},
+			wantFormat: "text",
+			wantFailOn: "error",
+			wantEnable: []string{"no-assert", "mock-tautology"},
+		},
+		{
+			name:       "enable_equals_comma_separated",
+			argv:       []string{"path", "--enable=no-assert, mock-tautology"},
+			wantRoots:  []string{"path"},
+			wantFormat: "text",
+			wantFailOn: "error",
+			wantEnable: []string{"no-assert", "mock-tautology"},
+		},
+
+		{
 			name:          "compare_and_show_grade",
 			argv:          []string{"path", "--compare", "prev.json", "--show-grade"},
 			wantRoots:     []string{"path"},
@@ -575,9 +592,9 @@ func TestHelperMain(t *testing.T) {
 
 func TestMain_HiddenHintOnStderr(t *testing.T) {
 	dir := t.TempDir()
-	// todo-test is low-tier → hidden by default; triggers the always-on stderr hint.
-	src := "import pytest\n\ndef test_todo():\n    pytest.skip()\n"
-	if err := os.WriteFile(filepath.Join(dir, "test_todo.py"), []byte(src), 0o600); err != nil {
+	// sleep-in-test is low-tier (n=1) → hidden by default; triggers the always-on stderr hint.
+	src := "import time\n\ndef test_wait():\n    time.sleep(1)\n    assert value == 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "test_wait.py"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperMain$", "--", dir, "--format", "text", "--fail-on", "never")

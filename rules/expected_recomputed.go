@@ -35,6 +35,10 @@ func (expectedRecomputed) Check(file scan.File) []scan.Finding {
 			if rightLeaf == "" || isBuiltinOrLiteralCall(rightLeaf) || isTrivialMethodLeaf(rightLeaf) {
 				continue
 			}
+			// Value-object / model constructors (CamelCase) are expected literals, not recomputes.
+			if isClassConstructorLeaf(rightLeaf) {
+				continue
+			}
 			// Determinism: assert f(x) == f(x) — both sides are the same call; not a recompute smell.
 			if a.LeftIsCall && strings.TrimSpace(a.Left) == strings.TrimSpace(a.Right) {
 				continue
@@ -143,6 +147,15 @@ func callLeafFromSide(side string) string {
 		side = side[:i]
 	}
 	return leafName(side)
+}
+
+// isClassConstructorLeaf is true for CamelCase call leaves (RunUsage(...), Status()).
+func isClassConstructorLeaf(leaf string) bool {
+	if leaf == "" {
+		return false
+	}
+	r := rune(leaf[0])
+	return unicode.IsUpper(r)
 }
 
 func isBuiltinOrLiteralCall(leaf string) bool {
