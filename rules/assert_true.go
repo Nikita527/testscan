@@ -28,6 +28,7 @@ func (assertTrue) Check(file scan.File) []scan.Finding {
 }
 
 func assertTrueFromAST(file scan.File, model parse.Model) []scan.Finding {
+	lines := strings.Split(string(file.Content), "\n")
 	var findings []scan.Finding
 	for _, t := range model.Tests {
 		q := qualName(t)
@@ -36,6 +37,14 @@ func assertTrueFromAST(file scan.File, model parse.Model) []scan.Finding {
 			case "truthy":
 				msg, ok := alwaysTrueMessage(a.Text)
 				if !ok {
+					continue
+				}
+				// Owned by assert-inside-broad-raises — avoid duplicate on the same line.
+				if isFailingConstantAssert(a) && assertInsideTrapRaises(t, a.Lineno) {
+					continue
+				}
+				// Exhaustiveness guard: `else: assert False` is intentionally unreachable.
+				if isFailingConstantAssert(a) && assertInElseBranch(lines, a.Lineno) {
 					continue
 				}
 				findings = append(findings, scan.Finding{
@@ -59,6 +68,44 @@ func assertTrueFromAST(file scan.File, model parse.Model) []scan.Finding {
 		}
 	}
 	return findings
+}
+
+// assertInsideTrapRaises is true when lineno sits in a pytest.raises body that
+// catches Exception/BaseException/AssertionError (tuple form included).
+func assertInsideTrapRaises(t parse.TestFunc, lineno int) bool {
+	for _, r := range t.Raises {
+		if !isTrapRaisesException(r.Exc) {
+			continue
+		}
+		end := r.EndLineno
+		if end <= 0 {
+			end = r.Lineno
+		}
+		if lineno > r.Lineno && lineno <= end {
+			return true
+		}
+	}
+	return false
+}
+
+// assertInElseBranch reports whether lineno is indented under a bare `else:`.
+func assertInElseBranch(lines []string, lineno int) bool {
+	if lineno < 1 || lineno > len(lines) {
+		return false
+	}
+	indent := leadingSpaces(lines[lineno-1])
+	for i := lineno - 2; i >= 0; i-- {
+		trim := strings.TrimSpace(lines[i])
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		ind := leadingSpaces(lines[i])
+		if ind >= indent {
+			continue
+		}
+		return trim == "else:" || strings.HasPrefix(trim, "else:")
+	}
+	return false
 }
 
 // reOrTruthyConstant matches "... or True" / "... or 1" / `... or "x"` style

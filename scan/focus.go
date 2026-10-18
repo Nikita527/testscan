@@ -4,8 +4,6 @@ import "strings"
 
 // neverFocusRules are demoted / mid-noise heuristics that must stay out of
 // --focus even if config bumps their severity to warning.
-// near-duplicate-test is provisional and intentionally NOT listed here — see
-// FilterFocus (note-severity provisional findings still show by default).
 var neverFocusRules = map[string]struct{}{
 	"name-body-mismatch":                  {},
 	"no-assert":                           {},
@@ -16,13 +14,22 @@ var neverFocusRules = map[string]struct{}{
 	"only-happy-path":                     {},
 	"commented-assert":                    {},
 	"test-imports-implementation-private": {},
+	// wall-clock is measured/provisional on mp-be but note-heavy and 0% on agent
+	// corpora when used as input data — keep it out of the default view.
+	"wall-clock-in-test": {},
+}
+
+// noteFocusAllowRules are note-severity rules that still pass the default focus
+// filter (README: near-duplicate-test is provisional and shown by default).
+// Other provisional notes (e.g. wall-clock before neverFocus) stay hidden.
+var noteFocusAllowRules = map[string]struct{}{
+	"near-duplicate-test": {},
 }
 
 // FilterFocus keeps high-signal findings for daily/CI use: error and warning
-// with PrecisionWeight ≥ MinPrecisionForGrade. Drops notes (except provisional
-// tier — README promises provisional is shown by default), zero-precision rules,
-// and neverFocusRules (severity overrides). parse-error (tool error) is always
-// kept: a file that could not be analyzed must never silently disappear.
+// with PrecisionWeight ≥ MinPrecisionForGrade. Drops notes (except
+// noteFocusAllowRules), zero-precision rules, and neverFocusRules.
+// parse-error (tool error) is always kept.
 func FilterFocus(findings []Finding) []Finding {
 	out := make([]Finding, 0, len(findings))
 	for _, f := range findings {
@@ -35,9 +42,7 @@ func FilterFocus(findings []Finding) []Finding {
 		}
 		sev := strings.ToLower(f.Severity)
 		if sev != "error" && sev != "warning" {
-			// Provisional rules may emit note severity (near-duplicate-test) and
-			// must still pass the default focus filter.
-			if RuleTier(f.Rule) != TierProvisional {
+			if _, ok := noteFocusAllowRules[f.Rule]; !ok {
 				continue
 			}
 		}

@@ -16,14 +16,15 @@ func TestFilterFocus(t *testing.T) {
 		{Rule: "parse-error", Severity: "note"},
 		{Rule: "assert-true", Severity: "warning"},
 		{Rule: "only-happy-path", Severity: "note"},
-		{Rule: "near-duplicate-test", Severity: "note"}, // provisional note — shown
+		{Rule: "near-duplicate-test", Severity: "note"},   // allowlisted note
+		{Rule: "wall-clock-in-test", Severity: "note"},    // neverFocus + not allowlisted
+		{Rule: "wall-clock-in-test", Severity: "warning"}, // neverFocus even as warning
 	}
 	got := scan.FilterFocus(in)
-	if len(got) != 5 {
-		t.Fatalf("len=%d, want 5: %+v", len(got), got)
-	}
-	// parse-error is exempt from focus (a file that was not analyzed must show).
 	want := []string{"empty-test", "broad-raises", "parse-error", "assert-true", "near-duplicate-test"}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d, want %d: %+v", len(got), len(want), got)
+	}
 	for i, id := range want {
 		if got[i].Rule != id {
 			t.Fatalf("got[%d]=%q, want %q", i, got[i].Rule, id)

@@ -435,7 +435,7 @@ func writeFindings(w io.Writer, findings []scan.Finding, score scan.Score, forma
 		if _, err := fmt.Fprintln(w, scan.FormatScoreLine(score)); err != nil {
 			return err
 		}
-		for _, f := range findings {
+		for _, f := range scan.CollapseNearDuplicatesForText(findings) {
 			tag := ""
 			if f.Rule != "parse-error" {
 				switch scan.RuleTier(f.Rule) {
