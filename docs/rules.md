@@ -118,13 +118,18 @@ def test_membership():
 
 **Severity:** warning  
 **Tier:** deterministic  
-**When:** `assert False` / empty/`None` constant assert, or `pytest.fail(...)`, inside `pytest.raises(Exception|BaseException|AssertionError)`. The failing assert raises `AssertionError`, which the broad `raises` catches — so the test stays green even when the protected call succeeds.
+**When:** `assert False` / empty/`None` constant assert, or `pytest.fail(...)`, inside `pytest.raises(Exception|BaseException|AssertionError)` (including the tuple form `pytest.raises((Exception, …))`). The failing assert raises `AssertionError`, which the broad `raises` catches — so the test stays green even when the protected call succeeds.
 
 Hit:
 
 ```python
 def test_auth():
     with pytest.raises(Exception):
+        connect_without_key()
+        assert False
+
+def test_auth_tuple():
+    with pytest.raises((Exception, OSError)):
         connect_without_key()
         assert False
 ```
@@ -644,7 +649,7 @@ def test_sut_result():
 ## sleep-in-test
 
 **Severity:** warning  
-**When:** `time.sleep` / `asyncio.sleep` in a test. Skips `sleep(0)` / `sleep(0.0)` (event-loop yield) and sleeps inside `while`/`for` polling with a deadline (`fail_after`, `wait_for`, `timeout`, …) or `break`/`return`.  
+**When:** `time.sleep` / `asyncio.sleep` in a test. Skips `sleep(0)` / `sleep(0.0)` (event-loop yield) and sleeps inside `while`/`for` that are also bounded by a deadline helper call (`fail_after(`, `wait_for(`, `asyncio.timeout(`, …). A bare `break`/`return` or a `timeout = N` variable alone does **not** suppress.  
 **Note:** `--disable sleep-in-test` does **not** disable `wall-clock-in-test` (separate rule).
 
 Hit:
@@ -808,7 +813,7 @@ def test_dep_patch():
 ## expected-recomputed
 
 **Severity:** warning  
-**When:** the right-hand side of a compare assert calls the same SUT/helper already used to produce the left-hand value (recomputing the expected value). Determinism checks `f(x) == f(x)` and CamelCase value-object constructors (`RunUsage(...)`, `Status()`) are not flagged.
+**When:** the right-hand side of a compare assert calls the same SUT/helper already used to produce the left-hand value (recomputing the expected value). Determinism checks `f(x) == f(x)` are not flagged. Value-object / class constructors are skipped when `class Name` exists in the file or the CapWords call uses only keyword=literal args (`RunUsage(input_tokens=7)`, `Status()`). CapWords **helpers** with positional args (`ComputeExpected(3)`) still report.
 
 Hit:
 

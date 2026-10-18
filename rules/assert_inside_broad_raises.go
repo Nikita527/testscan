@@ -8,8 +8,9 @@ import (
 )
 
 // assertInsideBroadRaises flags assert False / pytest.fail inside
-// pytest.raises(Exception|BaseException|AssertionError). AssertionError from
-// the assert is swallowed by the broad raises, so the test cannot fail.
+// pytest.raises(Exception|BaseException|AssertionError) (including the tuple
+// form pytest.raises((Exception, ...))). AssertionError from the assert is
+// swallowed by the broad raises, so the test cannot fail.
 type assertInsideBroadRaises struct{}
 
 func (assertInsideBroadRaises) ID() string { return "assert-inside-broad-raises" }
@@ -83,6 +84,68 @@ func isTrapRaisesException(exc string) bool {
 	if e == "" {
 		return false
 	}
+	// Tuple form: (Exception, OSError) / (Exception,)
+	if strings.HasPrefix(e, "(") && strings.HasSuffix(e, ")") {
+		inner := strings.TrimSpace(e[1 : len(e)-1])
+		if inner == "" {
+			return false
+		}
+		for _, part := range splitRaiseExcParts(inner) {
+			if isSingleTrapException(part) {
+				return true
+			}
+		}
+		return false
+	}
+	return isSingleTrapException(e)
+}
+
+func splitRaiseExcParts(inner string) []string {
+	var parts []string
+	depth, quote := 0, byte(0)
+	start := 0
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth--
+		case ',':
+			if depth != 0 {
+				continue
+			}
+			parts = append(parts, strings.TrimSpace(inner[start:i]))
+			start = i + 1
+		}
+	}
+	parts = append(parts, strings.TrimSpace(inner[start:]))
+	out := parts[:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func isSingleTrapException(exc string) bool {
+	e := strings.TrimSpace(exc)
+	if e == "" {
+		return false
+	}
 	switch e {
 	case "Exception", "BaseException", "AssertionError":
 		return true
@@ -96,6 +159,9 @@ func trapExcLabel(exc string) string {
 	e := strings.TrimSpace(exc)
 	if e == "" {
 		return "Exception"
+	}
+	if strings.HasPrefix(e, "(") {
+		return e
 	}
 	if i := strings.LastIndex(e, "."); i >= 0 {
 		return e[i+1:]

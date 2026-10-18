@@ -86,13 +86,20 @@ def test_mutates_fixture(cart):
 ## assert-true
 
 **Severity:** warning  
-**Когда:** `assert True` / `assert 1` / `assert "…"`, или unittest `assertTrue`/`assertFalse` со сравнением в аргументе (лучше `assertEqual`).
+**Tier:** deterministic  
+**Когда:** `assert True` / `assert 1` / `assert "…"` / `… or True`, или unittest `assertTrue`/`assertFalse` со сравнением в аргументе (лучше `assertEqual`).
 
 Hit:
 
 ```python
 def test_assert_true():
     assert True
+
+def test_string_literal():
+    assert '"Agent1" -> "__end__";'  # пропущено `in result`
+
+def test_or_true():
+    assert result.is_valid or True
 ```
 
 Clean:
@@ -100,6 +107,39 @@ Clean:
 ```python
 def test_ok():
     assert value is True
+
+def test_membership():
+    assert '"Agent1" -> "__end__";' in result
+```
+
+---
+
+## assert-inside-broad-raises
+
+**Severity:** warning  
+**Tier:** deterministic  
+**Когда:** `assert False` / константный failing assert или `pytest.fail(...)` внутри `pytest.raises(Exception|BaseException|AssertionError)` (включая tuple-форму `pytest.raises((Exception, …))`). `AssertionError` от assert ловится широким `raises` — тест остаётся зелёным, даже если защищённый вызов успешен.
+
+Hit:
+
+```python
+def test_auth():
+    with pytest.raises(Exception):
+        connect_without_key()
+        assert False
+
+def test_auth_tuple():
+    with pytest.raises((Exception, OSError)):
+        connect_without_key()
+        assert False
+```
+
+Clean:
+
+```python
+def test_auth():
+    with pytest.raises(PermissionError):
+        connect_without_key()
 ```
 
 ---
@@ -147,6 +187,7 @@ def test_patched_boundary():
 ## todo-test
 
 **Severity:** warning  
+**Tier:** deterministic  
 **Когда:** placeholder `pytest.skip()` / `pytest.fail("TODO")` / `assert False, "TODO"`, или skip/xfail-декоратор с TODO/FIXME в reason. Осознанный `@pytest.mark.skip(reason=...)` — зона `skip-without-reason`, не этого правила.
 
 Hit:
@@ -239,7 +280,8 @@ def test_d():
 ## assert-equals-same
 
 **Severity:** warning  
-**Когда:** `assert <expr> == <expr>` с одинаковым текстом слева и справа.
+**Tier:** deterministic  
+**Когда:** `assert <name|literal> == <то же>` с одинаковым текстом слева и справа. Стороны Call/Attribute (`f(x)==f(x)`, `a.prop is a.prop`) не репортятся — это проверки детерминизма / кэша.
 
 Hit:
 
@@ -414,7 +456,8 @@ def test_ok():
 ## fake-mock-assert
 
 **Severity:** warning  
-**Когда:** опечатка или несуществующий mock-assert (`assert_called_once_wiht`, `mock.called_once_with(...)`, `assert mock.called_once_with`).
+**Tier:** deterministic  
+**Когда:** опечатка или несуществующий mock-assert (`assert_called_once_wiht`, `mock.called_once_with(...)`, `assert mock.called_once_with`). **Не** флагирует настоящий `Mock.called` и локальный bool `called`. Attr-фейки (`called_once` / `called_with`) требуют приёмник Mock/patch/mocker. Известные `assert_awaited*` принимаются.
 
 Hit:
 
@@ -428,6 +471,11 @@ Clean:
 ```python
 def test_ok():
     mock.assert_called_once_with()
+    assert mock.called
+
+def test_local_flag():
+    called = True
+    assert called
 ```
 
 ---
@@ -540,7 +588,7 @@ def test_range():
 ## weak-assert
 
 **Severity:** note  
-**Когда:** в тесте только слабые assert: bare truthy (`assert x` / `assert obj.flag`), `is not None`, или `len(...)` vs `0`; либо поверхностные `rejects_*`/`fails_*`/`invalid*` без кода/сообщения ошибки; либо GET-подобные тесты только с `status_code == 200`. **Не** ловит `len(x) == N` (N≠0), `assert result.is_valid` в `accepts_*`/`passes_*`/`valid*`, `assert f(...)`, `assert obj.method()`, `assert not collection`. `assert x is None` тоже не weak.
+**Когда:** в тесте только слабые assert: bare truthy **name** (`assert result`), `is not None`, или `len(...) > 0` / `!= 0`; либо поверхностные `rejects_*`/`fails_*`/`invalid*` без кода/сообщения ошибки; либо GET-подобные тесты только с `status_code == 200`. **Не** ловит `len(x) == 0` (точная пустота), bool-атрибуты (`assert obj.flag`), `len(x) == N` (N≠0), `assert result.is_valid` в `accepts_*`/`passes_*`/`valid*`, `assert f(...)`, `assert obj.method()`, `assert not collection`. `assert x is None` тоже не weak.
 
 Hit:
 
@@ -601,7 +649,7 @@ def test_sut_result():
 ## sleep-in-test
 
 **Severity:** warning  
-**When:** `time.sleep` / `asyncio.sleep` в тесте.  
+**Когда:** `time.sleep` / `asyncio.sleep` в тесте. Пропускает `sleep(0)` / `sleep(0.0)` (yield event loop) и sleep внутри `while`/`for`, ограниченных deadline-хелпером (`fail_after(`, `wait_for(`, `asyncio.timeout(`, …). Голый `break`/`return` или переменная `timeout = N` сами по себе **не** подавляют.  
 **Note:** `--disable sleep-in-test` **не** отключает `wall-clock-in-test`.
 
 Hit:
@@ -617,6 +665,10 @@ Clean:
 ```python
 def test_ok():
     assert True
+
+async def test_yield():
+    await asyncio.sleep(0)
+    assert True
 ```
 
 ---
@@ -626,7 +678,7 @@ def test_ok():
 **Severity:** note; **warning** в проектах с timezone-aware датами  
 **When:** наивные `datetime.now()` / `datetime.today()` / `datetime.utcnow()` / `date.today()` без freezegun / time-machine / `freeze_time`. Вызовы с tz (`datetime.now(timezone.utc)`, `datetime.now(tz=...)`, `.astimezone()`, `.replace(tzinfo=...)`) не репортятся никогда.
 
-**Контекст проекта.** Проект считается timezone-aware, если в Django settings `USE_TZ = True` (`DJANGO_SETTINGS_MODULE` из `pyproject.toml` / `pytest.ini` / `setup.cfg` / `tox.ini` / `manage.py`, иначе любой `settings*.py` или файл пакета `settings/`), либо не-тестовый код использует `django.utils.timezone` `now` / `localdate`. Обход ограничен (пропускает `.venv`, `venv`, `node_modules`, `.git`, `site-packages`, `tests`, `migrations`; максимум 5000 файлов) и выполняется один раз за запуск. В таком проекте находка - `warning` (`project uses timezone-aware dates (timezone.localdate()); naive datetime.now() diverges near midnight ...`), и только если значение попадает в поле модели/фабрики, assert или аргумент вызова. Не репортится, если значение не используется, находится в теле `pytest.raises` или передаётся в вызов внутри негативного теста (имя/assert вроде `missing`, `error`, `is None`). В остальных проектах остаётся `note` для любого наивного чтения.
+**Контекст проекта.** Проект считается timezone-aware, если в Django settings `USE_TZ = True` (`DJANGO_SETTINGS_MODULE` из `pyproject.toml` / `pytest.ini` / `setup.cfg` / `tox.ini` / `manage.py`, иначе любой `settings*.py` или файл пакета `settings/`), либо не-тестовый код использует `django.utils.timezone` `now` / `localdate`. Обход ограничен (пропускает `.venv`, `venv`, `node_modules`, `.git`, `site-packages`, `tests`, `migrations`; максимум 5000 файлов) и выполняется один раз за запуск. В таком проекте находка — `warning`, и только если значение попадает в поле модели/фабрики или assert. Чистые `call_arg` (передача `now()` как входных данных) пропускаются в любом проекте. Неиспользованные значения остаются `note` только в non-aware проектах.
 
 Hit:
 
@@ -672,6 +724,7 @@ def test_ok():
 ## near-duplicate-test
 
 **Severity:** note  
+**Tier:** provisional (виден по умолчанию, включая severity `note`)  
 **Когда:** кандидат на parametrize: два теста с одинаковым телом после нормализации литералов, которые отличаются **только входными литералами** (аргументы вызовов, setup). Assert'ы должны совпадать полностью, включая правые части сравнений, status/enum-атрибуты и аргументы `pytest.raises(E, match=...)`; списки декораторов совпадают; имена не антонимы (`passes`/`dropped`, `demotes`/`retries`, `valid`/`invalid`, `with`/`without`, `is_null`/`is_not_null`, …). Тесты соседние в одной области (не более одного теста между ними), небольшие (до 15 строк) и не имеют двух разных docstring (документированные отдельные сценарии). Кластеры 3+ — одна находка на первом тесте; пара — на более позднем («same body and assertions as test_x:N, differing only in input literals — candidate for `@pytest.mark.parametrize`»).
 
 Hit:
@@ -764,7 +817,7 @@ def test_dep_patch():
 ## expected-recomputed
 
 **Severity:** warning  
-**Когда:** правая часть compare-assert вызывает тот же SUT/хелпер, которым уже получили левую сторону (ожидаемое пересчитывается). Проверки детерминизма `f(x) == f(x)` не флагируются.
+**Когда:** правая часть compare-assert вызывает тот же SUT/хелпер, которым уже получили левую сторону (ожидаемое пересчитывается). Проверки детерминизма `f(x) == f(x)` не флагируются. Конструкторы value-object / class пропускаются, если в файле есть `class Name` или CapWords-вызов только с keyword=literal (`RunUsage(input_tokens=7)`, `Status()`). CapWords-**хелперы** с позиционными аргументами (`ComputeExpected(3)`) по-прежнему репортятся.
 
 Hit:
 
@@ -816,6 +869,7 @@ def test_ok():
 ## overbroad-equality
 
 **Severity:** note  
+**Opt-in** (`--enable overbroad-equality`). С 0.8.0 выключено по умолчанию (0% precision на agent-корпусах — точное равенство большому литералу обычно сильный assert).  
 **Когда:** assert сравнивает с огромным литералом dict/list/tuple. Пропускает контракт API с корнем `response.data` / `resp.data` / `r.data` / `*.json()` (включая индексы поверх), результаты `.values()` / `.values_list()`, `error_details` и наборы/списки строк-идентификаторов (permission- и error-code множества).
 
 Hit:

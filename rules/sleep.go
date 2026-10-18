@@ -17,8 +17,9 @@ func (sleepInTest) NeedsAST() bool { return true }
 // reSleepZero matches time/asyncio.sleep(0) / sleep(0.0) — yield-to-loop, not a wait.
 var reSleepZero = regexp.MustCompile(`(?i)\bsleep\s*\(\s*0(\.0+)?\s*\)`)
 
-// rePollDeadline markers that bound a polling loop around a sleep.
-var rePollDeadline = regexp.MustCompile(`(?i)\b(fail_after|move_on_after|wait_for|wait_until|timeout|deadline|asyncio\.wait_for|anyio\.fail_after|anyio\.move_on_after)\b`)
+// rePollDeadlineCall matches deadline/timeout *helpers* that bound a polling loop.
+// Bare identifiers like `timeout = 5` must not suppress real sleeps.
+var rePollDeadlineCall = regexp.MustCompile(`(?i)\b(?:anyio\.|asyncio\.|trio\.)?(?:fail_after|move_on_after|wait_for|wait_until|timeout)\s*\(`)
 
 func (sleepInTest) Check(file scan.File) []scan.Finding {
 	model, err := astModel(file)
@@ -38,7 +39,7 @@ func (sleepInTest) Check(file scan.File) []scan.Finding {
 			if reSleepZero.MatchString(line) {
 				continue
 			}
-			if sleepInPollingLoop(t, c, lines, src) {
+			if sleepInDeadlinePollingLoop(t, c, lines) {
 				continue
 			}
 			findings = append(findings, scan.Finding{
@@ -63,18 +64,10 @@ func isSleepCall(name string) bool {
 		(strings.Contains(name, "time") || strings.Contains(name, "asyncio") || strings.Contains(name, "anyio"))
 }
 
-// sleepInPollingLoop is true when the sleep sits in a while/for that has a
-// break/return or an explicit deadline/timeout helper in the same test.
-func sleepInPollingLoop(t parse.TestFunc, c parse.Call, lines []string, src string) bool {
-	for _, fl := range t.ForLoops {
-		if c.Lineno > fl.Lineno && (fl.EndLineno <= 0 || c.Lineno <= fl.EndLineno) {
-			if loopBodyHasBreakOrReturn(lines, fl.Lineno, fl.EndLineno) ||
-				rePollDeadline.MatchString(srcSnippet(lines, t.Lineno, t.EndLineno)) {
-				return true
-			}
-		}
-	}
-	// while-loops are not in the AST model; scan surrounding source for while + deadline.
+// sleepInDeadlinePollingLoop is true only when the sleep sits inside a while/for
+// *and* the same test uses an explicit deadline helper (fail_after / wait_for / …).
+// A bare `break`/`return` or a `timeout = N` variable alone does not suppress.
+func sleepInDeadlinePollingLoop(t parse.TestFunc, c parse.Call, lines []string) bool {
 	start := t.Lineno
 	if start < 1 {
 		start = 1
@@ -84,27 +77,31 @@ func sleepInPollingLoop(t parse.TestFunc, c parse.Call, lines []string, src stri
 		end = len(lines)
 	}
 	snippet := srcSnippet(lines, start, end)
-	if !strings.Contains(snippet, "while ") && !strings.Contains(snippet, "while:") {
+	if !rePollDeadlineCall.MatchString(snippet) {
 		return false
 	}
-	if !rePollDeadline.MatchString(snippet) && !loopBodyHasBreakOrReturn(lines, start, end) {
+	if !sleepInsideLoop(t, c, lines, start) {
 		return false
 	}
-	// Sleep line must be indented deeper than a preceding while.
+	return true
+}
+
+func sleepInsideLoop(t parse.TestFunc, c parse.Call, lines []string, testStart int) bool {
+	for _, fl := range t.ForLoops {
+		if c.Lineno > fl.Lineno && (fl.EndLineno <= 0 || c.Lineno <= fl.EndLineno) {
+			return true
+		}
+	}
 	sleepIndent := leadingSpaces(lineAt(lines, c.Lineno))
-	for i := c.Lineno - 2; i >= start-1 && i >= 0; i-- {
+	for i := c.Lineno - 2; i >= testStart-1 && i >= 0; i-- {
 		trim := strings.TrimSpace(lines[i])
 		if trim == "" || strings.HasPrefix(trim, "#") {
 			continue
 		}
 		if strings.HasPrefix(trim, "while ") || trim == "while:" || strings.HasPrefix(trim, "while(") {
-			if leadingSpaces(lines[i]) < sleepIndent {
-				return true
-			}
-			return false
+			return leadingSpaces(lines[i]) < sleepIndent
 		}
 		if leadingSpaces(lines[i]) < sleepIndent && !strings.HasPrefix(trim, "else") {
-			// Left the indented block without finding while.
 			break
 		}
 	}
@@ -122,23 +119,6 @@ func srcSnippet(lines []string, start, end int) string {
 		return ""
 	}
 	return strings.Join(lines[start-1:end], "\n")
-}
-
-func loopBodyHasBreakOrReturn(lines []string, start, end int) bool {
-	if start < 1 {
-		start = 1
-	}
-	if end <= 0 || end > len(lines) {
-		end = len(lines)
-	}
-	for i := start; i <= end && i <= len(lines); i++ {
-		trim := strings.TrimSpace(lines[i-1])
-		if trim == "break" || strings.HasPrefix(trim, "break ") ||
-			trim == "return" || strings.HasPrefix(trim, "return ") {
-			return true
-		}
-	}
-	return false
 }
 
 func NewSleepInTest() scan.Rule {
