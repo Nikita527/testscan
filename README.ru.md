@@ -268,9 +268,9 @@ Go вызывает `parse.File` / batch один раз на файл внут�
 | assert-in-emptyable-loop | warning | assert только внутри for по emptyable (`other`); пропускает литералы / `range` / consts / pre-loop assert |
 | weak-assert | note | только bare truthy name / is not None / len > 0; поверхностный rejects / GET 200; не `len==0` и не bool-атрибуты |
 | sleep-in-test | warning | `time.sleep` / `asyncio.sleep` (не `sleep(0)` и не polling с дедлайном) |
-| wall-clock-in-test | note | `datetime.now` / `date.today` без freeze (не чистый call-arg как вход) |
+| wall-clock-in-test | note | `datetime.now` / `date.today` без freeze (не чистый call-arg; **скрыт по умолчанию** — `--all` / `--enable wall-clock-in-test`) |
 | skip-without-reason | warning | skip/xfail без reason или strict |
-| near-duplicate-test | note | почти одинаковые тела после нормализации литералов; **provisional — виден по умолчанию**; пропускает противоположную полярность / разный SUT / enum; 3+ → набросок parametrize |
+| near-duplicate-test | note | почти одинаковые тела после нормализации литералов; **provisional — виден по умолчанию** (в text — одна сводка на файл; `--all` перечисляет каждую); пропускает противоположную полярность / разный SUT / enum; 3+ → набросок parametrize |
 | self-patched-sut | warning | патчит сам SUT и проверяет патч |
 | expected-recomputed | warning | RHS assert пересчитывает ожидаемое через SUT/хелпер (не CamelCase-конструкторы / не `f(x)==f(x)`) |
 | commented-assert | note | закомментированный `# assert` / `# self.assert` |

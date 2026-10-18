@@ -523,6 +523,43 @@ func TestWriteFindings_TextAndJSONScore(t *testing.T) {
 	}
 }
 
+func TestWriteFindings_NearDupCollapseHeaderMatchesLines(t *testing.T) {
+	old := scan.RulePrecision
+	scan.RulePrecision = map[string]scan.PrecisionInfo{
+		"empty-test":          scan.Measured(30, 30),
+		"near-duplicate-test": scan.Measured(6, 7),
+	}
+	defer func() { scan.RulePrecision = old }()
+
+	findings := []scan.Finding{
+		{File: "a.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty"},
+		{File: "a.py", Line: 10, Rule: "near-duplicate-test", Severity: "note", Message: "p1"},
+		{File: "a.py", Line: 20, Rule: "near-duplicate-test", Severity: "note", Message: "p2"},
+		{File: "a.py", Line: 30, Rule: "near-duplicate-test", Severity: "note", Message: "p3"},
+	}
+	score := scan.CalculateScoreWithTests(findings, 2, 100)
+	if score.ProvisionalCount != 3 {
+		t.Fatalf("pre-collapse provisional=%d, want 3", score.ProvisionalCount)
+	}
+	var textBuf strings.Builder
+	if err := writeFindings(&textBuf, findings, score, "text"); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(textBuf.String()), "\n")
+	// header + empty-test + one near-dup summary = 3 lines; provisional in header must be 1
+	wantHeader := "testscan: 1 actionable finding (1.00 per 100 tests) · 1 provisional · 0 deterministic · 100 tests in 2 files"
+	if lines[0] != wantHeader {
+		t.Fatalf("header = %q, want %q", lines[0], wantHeader)
+	}
+	body := strings.Join(lines[1:], "\n")
+	if !strings.Contains(body, "3 near-duplicate") {
+		t.Fatalf("want collapsed summary, got %q", body)
+	}
+	if strings.Count(body, "near-duplicate-test") != 1 {
+		t.Fatalf("want one near-dup line after collapse, got %q", body)
+	}
+}
+
 func TestWriteFindings_DeterministicTag(t *testing.T) {
 	fs := []scan.Finding{{
 		File: "t.py", Line: 1, Rule: "empty-test", Severity: "error", Message: "empty",

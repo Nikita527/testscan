@@ -165,9 +165,10 @@ func mockishName(t parse.TestFunc, localMock map[string]bool, name string) bool 
 	if origin, ok := t.VarOrigins[name]; ok && strings.Contains(strings.ToLower(origin), "patch") {
 		return true
 	}
-	ln := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(name, "self."), "cls."))
-	return ln == "m" || strings.Contains(ln, "mock") || strings.HasPrefix(ln, "m_") ||
-		strings.HasSuffix(ln, "_m") || strings.Contains(ln, "stub")
+	base := strings.TrimPrefix(strings.TrimPrefix(name, "self."), "cls.")
+	ln := strings.ToLower(base)
+	return ln == "m" || looksLikeMockName(base) || strings.HasPrefix(ln, "m_") ||
+		strings.HasSuffix(ln, "_m") || hasStubToken(ln)
 }
 
 type flowState struct {

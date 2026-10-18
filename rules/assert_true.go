@@ -88,7 +88,9 @@ func assertInsideTrapRaises(t parse.TestFunc, lineno int) bool {
 	return false
 }
 
-// assertInElseBranch reports whether lineno is indented under a bare `else:`.
+// assertInElseBranch reports whether lineno sits under an if/elif `else:`
+// (or a match `case _:` / `case Name:`) exhaustiveness guard — not for/while/try
+// else-clauses, which are reachable.
 func assertInElseBranch(lines []string, lineno int) bool {
 	if lineno < 1 || lineno > len(lines) {
 		return false
@@ -103,7 +105,55 @@ func assertInElseBranch(lines []string, lineno int) bool {
 		if ind >= indent {
 			continue
 		}
-		return trim == "else:" || strings.HasPrefix(trim, "else:")
+		if trim == "else:" || strings.HasPrefix(trim, "else:") {
+			return elseBelongsToIf(lines, i, ind)
+		}
+		if isMatchDefaultCase(trim) {
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+// elseBelongsToIf is true when the else at elseIdx (indent elseInd) closes an
+// if/elif chain, not for/while/try.
+func elseBelongsToIf(lines []string, elseIdx, elseInd int) bool {
+	for j := elseIdx - 1; j >= 0; j-- {
+		trim := strings.TrimSpace(lines[j])
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		ind := leadingSpaces(lines[j])
+		if ind > elseInd {
+			continue
+		}
+		if ind < elseInd {
+			return false
+		}
+		// Same indent as else — compound statement head.
+		if isIfOrElifHeader(trim) {
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+func isIfOrElifHeader(trim string) bool {
+	return strings.HasPrefix(trim, "if ") || strings.HasPrefix(trim, "if(") ||
+		strings.HasPrefix(trim, "elif ") || strings.HasPrefix(trim, "elif(")
+}
+
+// isMatchDefaultCase matches `case _:` / `case _: ...` style defaults.
+func isMatchDefaultCase(trim string) bool {
+	if !strings.HasPrefix(trim, "case ") {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(trim, "case "))
+	// `case _:` or `case _ if ...:` — wildcard default.
+	if strings.HasPrefix(rest, "_:") || strings.HasPrefix(rest, "_ ") || rest == "_:" {
+		return true
 	}
 	return false
 }

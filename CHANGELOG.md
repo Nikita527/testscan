@@ -31,18 +31,20 @@ Precision-first: make the default view trustworthy after the 0.7.0 agent-repo be
 - **`sleep-in-test`**: ignore `asyncio.sleep(0)` / `sleep(0.0)` and sleeps inside loops bounded by deadline helpers (`fail_after` / `wait_for` / …). Bare `break`/`return` or a `timeout = N` variable alone do **not** suppress.
 - **`weak-assert`**: `len(x)==0` and bool attributes are no longer weak; keep `is not None` and `len > 0`.
 - **`expected-recomputed`**: skip real value-object/class constructors (`class` in file or CapWords with keyword=literal args); CamelCase **helpers** still report.
-- **`wall-clock-in-test`**: skip pure `call_arg` uses; also in `neverFocus` so note/warning findings stay out of the default view (0% on agent corpora when used as input).
+- **`wall-clock-in-test`**: skip pure `call_arg` uses; also in `neverFocus` so note/warning findings stay out of the default view (0% on agent corpora when used as input). Re-enable with `--all` / `--enable wall-clock-in-test`.
 - **Fingerprints** include a 1-based occurrence index among identical rule+file+qualname+normalized-snippet shapes (stable under line shifts). Re-save `--baseline` after upgrading.
+- **`assert-true`**: `else: assert False` suppress only for **if/elif** (and `case _:`), not for/while/try else.
+- Text header provisional/actionable counts match **collapsed** near-duplicate lines.
+- Mock-name detection uses identifier-token boundaries (not substring `mock`); `isPytestFailCall` matches only `pytest.fail` / imported `fail`.
 
 ### Precision (measured on 6 agent repos, 42k tests)
 
 | View | Findings | TP | FP | Precision |
 |---|---:|---:|---:|---:|
 | **0.7.0 default** | 30 | 3 | 27 | **10%** |
-| **0.8.0 branch (before wall-clock / dedupe / collapse fixes)** | 150 | ~115 | ~13 | **~90%** |
-| **0.8.0 after these fixes** | *(re-measure when convenient)* | | | wall-clock hidden; assert-true deduped; near-dup text collapsed |
+| **0.8.0 branch mid-PR (before wall-clock / dedupe / collapse fixes)** | 150 | ~115 | ~13 | **~90%** |
 
-0.7.0 default was almost all `fake-mock-assert` / `assert-equals-same` FPs plus 3 `empty-test` TPs. The 0.8.0 mid-branch 150 came mostly from newly visible `todo-test` / `assert-true` / `assert-inside-broad-raises` / `near-duplicate-test`, plus 12 `wall-clock-in-test` FPs that this follow-up hides.
+0.7.0 default was almost all `fake-mock-assert` / `assert-equals-same` FPs plus 3 `empty-test` TPs. The mid-PR 150 came mostly from newly visible `todo-test` / `assert-true` / `assert-inside-broad-raises` / `near-duplicate-test`, plus 12 `wall-clock-in-test` FPs (now hidden by default). Post-fix default-view precision was not re-measured on the full agent corpora in this environment (labels alone without a fresh `--all` report cannot reproduce the focused 150-finding set).
 
 ## 0.7.0 - 2026-10-15
 

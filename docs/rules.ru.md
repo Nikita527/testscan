@@ -676,6 +676,7 @@ async def test_yield():
 ## wall-clock-in-test
 
 **Severity:** note; **warning** в проектах с timezone-aware датами  
+**Вид по умолчанию:** **скрыт** (`neverFocus`). Показать: `--all`, либо `--enable wall-clock-in-test` / `--rule wall-clock-in-test` (явные правила обходят focus).  
 **When:** наивные `datetime.now()` / `datetime.today()` / `datetime.utcnow()` / `date.today()` без freezegun / time-machine / `freeze_time`. Вызовы с tz (`datetime.now(timezone.utc)`, `datetime.now(tz=...)`, `.astimezone()`, `.replace(tzinfo=...)`) не репортятся никогда.
 
 **Контекст проекта.** Проект считается timezone-aware, если в Django settings `USE_TZ = True` (`DJANGO_SETTINGS_MODULE` из `pyproject.toml` / `pytest.ini` / `setup.cfg` / `tox.ini` / `manage.py`, иначе любой `settings*.py` или файл пакета `settings/`), либо не-тестовый код использует `django.utils.timezone` `now` / `localdate`. Обход ограничен (пропускает `.venv`, `venv`, `node_modules`, `.git`, `site-packages`, `tests`, `migrations`; максимум 5000 файлов) и выполняется один раз за запуск. В таком проекте находка — `warning`, и только если значение попадает в поле модели/фабрики или assert. Чистые `call_arg` (передача `now()` как входных данных) пропускаются в любом проекте. Неиспользованные значения остаются `note` только в non-aware проектах.
@@ -725,6 +726,7 @@ def test_ok():
 
 **Severity:** note  
 **Tier:** provisional (виден по умолчанию, включая severity `note`)  
+**Text output:** в default text при 2+ находках в файле — **одна сводка на файл** (`N near-duplicate test pair(s)/cluster(s) in this file — use --all to list each`). JSON / SARIF / HTML / `--all` оставляют каждую находку. Счётчики в text-header совпадают со свёрнутыми строками.  
 **Когда:** кандидат на parametrize: два теста с одинаковым телом после нормализации литералов, которые отличаются **только входными литералами** (аргументы вызовов, setup). Assert'ы должны совпадать полностью, включая правые части сравнений, status/enum-атрибуты и аргументы `pytest.raises(E, match=...)`; списки декораторов совпадают; имена не антонимы (`passes`/`dropped`, `demotes`/`retries`, `valid`/`invalid`, `with`/`without`, `is_null`/`is_not_null`, …). Тесты соседние в одной области (не более одного теста между ними), небольшие (до 15 строк) и не имеют двух разных docstring (документированные отдельные сценарии). Кластеры 3+ — одна находка на первом тесте; пара — на более позднем («same body and assertions as test_x:N, differing only in input literals — candidate for `@pytest.mark.parametrize`»).
 
 Hit:

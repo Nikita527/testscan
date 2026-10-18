@@ -60,3 +60,37 @@ func TestAssertInsideBroadRaises_SpecificExcClean(t *testing.T) {
 		t.Fatalf("specific tuple must be clean, got %v", got)
 	}
 }
+
+func TestAssertInsideBroadRaises_PytestFailExact(t *testing.T) {
+	mk := func(callName string) []scan.Finding {
+		return rules.NewAssertInsideBroadRaises().Check(scan.File{
+			Path:    "t.py",
+			Content: []byte("x"),
+			ModelOK: true,
+			Model: parse.Model{
+				Tests: []parse.TestFunc{{
+					Name: "test_x",
+					Raises: []parse.Raise{{
+						Exc:       "Exception",
+						Lineno:    3,
+						EndLineno: 5,
+					}},
+					Calls: []parse.Call{{
+						Name:   callName,
+						Lineno: 5,
+					}},
+				}},
+			},
+		})
+	}
+	for _, name := range []string{"pytest.fail", "fail"} {
+		if got := mk(name); len(got) != 1 {
+			t.Fatalf("%s must flag, got %v", name, got)
+		}
+	}
+	for _, name := range []string{"pytest.xfail", "other.fail", "pytest.helper.fail", "self.fail"} {
+		if got := mk(name); len(got) != 0 {
+			t.Fatalf("%s must not flag, got %v", name, got)
+		}
+	}
+}

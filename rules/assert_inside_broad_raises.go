@@ -181,11 +181,10 @@ func isFailingConstantAssert(a parse.Assert) bool {
 	return false
 }
 
+// isPytestFailCall matches pytest.fail or `from pytest import fail` exactly —
+// not arbitrary *.fail attribute calls.
 func isPytestFailCall(name string) bool {
-	if name == "pytest.fail" {
-		return true
-	}
-	return strings.HasSuffix(name, ".fail") && strings.HasPrefix(name, "pytest.")
+	return name == "pytest.fail" || name == "fail"
 }
 
 func NewAssertInsideBroadRaises() scan.Rule {

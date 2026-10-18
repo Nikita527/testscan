@@ -142,9 +142,7 @@ func receiverLooksLikeMock(attrExpr string, t parse.TestFunc) bool {
 	if root == "" {
 		return false
 	}
-	rl := strings.ToLower(root)
-	if rl == "mock" || rl == "mocker" || strings.HasPrefix(rl, "mock_") ||
-		strings.HasSuffix(rl, "_mock") || strings.Contains(rl, "mock") {
+	if looksLikeMockName(root) {
 		return true
 	}
 	for _, f := range t.Fixtures {

@@ -672,6 +672,7 @@ def test_ok():
 ## wall-clock-in-test
 
 **Severity:** note; **warning** in timezone-aware projects  
+**Default view:** **hidden** (`neverFocus`). Show with `--all`, or re-enable via `--enable wall-clock-in-test` / `--rule wall-clock-in-test` (explicit rules bypass focus).  
 **When:** naive `datetime.now()` / `datetime.today()` / `datetime.utcnow()` / `date.today()` without freezegun / time-machine / `freeze_time`. Calls with a tz (`datetime.now(timezone.utc)`, `datetime.now(tz=...)`, `.astimezone()`, `.replace(tzinfo=...)`) are never reported.
 
 **Project awareness.** The project counts as timezone-aware when Django settings have `USE_TZ = True` (`DJANGO_SETTINGS_MODULE` from `pyproject.toml` / `pytest.ini` / `setup.cfg` / `tox.ini` / `manage.py`, else any `settings*.py` or `settings/` package file), or non-test sources use `django.utils.timezone` `now` / `localdate`. The scan is bounded (skips `.venv`, `venv`, `node_modules`, `.git`, `site-packages`, `tests`, `migrations`; max 5000 files) and runs once per run. In such a project the finding is a `warning` (`project uses timezone-aware dates (timezone.localdate()); naive datetime.now() diverges near midnight in non-UTC local time ...`) and is reported only when the value reaches a model/factory field or an assert. Pure `call_arg` uses (passing `now()` as input data) are skipped in every project. Unused values stay a `note` only in non-aware projects.
@@ -721,6 +722,7 @@ def test_ok():
 
 **Severity:** note  
 **Tier:** provisional (shown by default, including note severity)  
+**Text output:** default text collapses to **one summary line per file** when there are 2+ findings in that file (`N near-duplicate test pair(s)/cluster(s) in this file — use --all to list each`). JSON / SARIF / HTML / `--all` keep every finding. The text header counts match the collapsed lines.  
 **When:** a parametrize candidate: two tests with the same body after normalizing literals that differ **only in input literals** (call args, setup). Assertions must be identical, including right-hand literals, status/enum attributes and `pytest.raises(E, match=...)` arguments; decorator lists must match; names must not be antonyms (`passes`/`dropped`, `demotes`/`retries`, `valid`/`invalid`, `with`/`without`, `is_null`/`is_not_null`, …). Tests must be adjacent in the same scope (at most one test in between), small (up to 15 lines), and must not carry two different docstrings (documented distinct scenarios). Clusters of 3+ emit one finding on the first test; pairs report on the later one ("same body and assertions as test_x:N, differing only in input literals — candidate for `@pytest.mark.parametrize`").
 
 Hit:

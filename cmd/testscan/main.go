@@ -432,10 +432,23 @@ func writeFindings(w io.Writer, findings []scan.Finding, score scan.Score, forma
 	case "agent":
 		return scan.WriteAgent(w, findings, score)
 	default:
-		if _, err := fmt.Fprintln(w, scan.FormatScoreLine(score)); err != nil {
+		shown := scan.CollapseNearDuplicatesForText(findings)
+		// Header counts must match the collapsed text lines (near-dup summaries).
+		headerScore := score
+		if len(shown) != len(findings) {
+			collapsed := scan.CalculateScoreWithTests(shown, score.Files, score.Tests)
+			collapsed.HiddenCount = score.HiddenCount
+			collapsed.Trend = score.Trend
+			collapsed.ShowAll = score.ShowAll
+			collapsed.ShowLow = score.ShowLow
+			collapsed.PathRoot = score.PathRoot
+			collapsed.ParseSkipped = score.ParseSkipped
+			headerScore = collapsed
+		}
+		if _, err := fmt.Fprintln(w, scan.FormatScoreLine(headerScore)); err != nil {
 			return err
 		}
-		for _, f := range scan.CollapseNearDuplicatesForText(findings) {
+		for _, f := range shown {
 			tag := ""
 			if f.Rule != "parse-error" {
 				switch scan.RuleTier(f.Rule) {
