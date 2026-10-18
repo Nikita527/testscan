@@ -100,11 +100,11 @@ func assertInElseBranch(lines []string, lineno int) bool {
 	trim := strings.TrimSpace(cur)
 	indent := leadingSpaces(cur)
 
-	// Same-line: assert shares the line with else: / case _:
+	// Same-line: assert shares the line with else: / case _[ if …]:
 	if body, ok := sameLineCompoundBody(trim, "else:"); ok && body != "" {
 		return elseBelongsToIf(lines, lineno-1, indent)
 	}
-	if isMatchDefaultCase(trim) && matchDefaultSameLineBody(trim) != "" {
+	if body, ok := parseMatchWildcardCase(trim); ok && body != "" {
 		return true
 	}
 
@@ -120,7 +120,7 @@ func assertInElseBranch(lines []string, lineno int) bool {
 		if prev == "else:" || strings.HasPrefix(prev, "else:") {
 			return elseBelongsToIf(lines, i, ind)
 		}
-		if isMatchDefaultCase(prev) {
+		if _, ok := parseMatchWildcardCase(prev); ok {
 			return true
 		}
 		return false
@@ -137,16 +137,31 @@ func sameLineCompoundBody(trim, keyword string) (string, bool) {
 	return strings.TrimSpace(trim[len(keyword):]), true
 }
 
-// matchDefaultSameLineBody returns the suite after `case _:` when non-empty.
-func matchDefaultSameLineBody(trim string) string {
+// parseMatchWildcardCase recognizes exhaustiveness wildcards:
+//   case _:
+//   case _: <body>
+//   case _ if <guard>:
+//   case _ if <guard>: <body>
+// Non-wildcard patterns (case X if cond:) return ok=false — those branches are reachable.
+func parseMatchWildcardCase(trim string) (body string, ok bool) {
 	if !strings.HasPrefix(trim, "case ") {
-		return ""
+		return "", false
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(trim, "case "))
-	if !strings.HasPrefix(rest, "_:") {
-		return ""
+	switch {
+	case rest == "_", rest == "_:":
+		return "", true
+	case strings.HasPrefix(rest, "_:"):
+		return strings.TrimSpace(rest[len("_:"):]), true
+	case strings.HasPrefix(rest, "_ if ") || strings.HasPrefix(rest, "_ if("):
+		idx := strings.LastIndex(rest, ":")
+		if idx < 0 {
+			return "", false
+		}
+		return strings.TrimSpace(rest[idx+1:]), true
+	default:
+		return "", false
 	}
-	return strings.TrimSpace(rest[len("_:"):])
 }
 
 // elseBelongsToIf is true when the else at elseIdx (indent elseInd) closes an
@@ -178,17 +193,10 @@ func isIfOrElifHeader(trim string) bool {
 		strings.HasPrefix(trim, "elif ") || strings.HasPrefix(trim, "elif(")
 }
 
-// isMatchDefaultCase matches `case _:` / `case _: ...` style defaults.
+// isMatchDefaultCase matches wildcard `case _:` / `case _ if …:` defaults.
 func isMatchDefaultCase(trim string) bool {
-	if !strings.HasPrefix(trim, "case ") {
-		return false
-	}
-	rest := strings.TrimSpace(strings.TrimPrefix(trim, "case "))
-	// `case _:` or `case _ if ...:` — wildcard default.
-	if strings.HasPrefix(rest, "_:") || strings.HasPrefix(rest, "_ ") || rest == "_:" {
-		return true
-	}
-	return false
+	_, ok := parseMatchWildcardCase(trim)
+	return ok
 }
 
 // reOrTruthyConstant matches "... or True" / "... or 1" / `... or "x"` style

@@ -144,3 +144,55 @@ def test_try_else_same_line():
 		t.Fatalf("same-line for/else and try/else must be flagged, got %+v", res.Findings)
 	}
 }
+
+func TestAssertTrue_GuardedWildcardCaseClean(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "test_case_guard.py"), `
+def test_guarded_multiline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _ if x is not None:
+            assert False
+
+def test_guarded_sameline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _ if x is not None: assert False
+`)
+	res, err := testRun(t, []string{dir}, rules.NewAssertTrue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("case _ if cond: assert False must be clean (exhaustiveness), got %+v", res.Findings)
+	}
+}
+
+func TestAssertTrue_GuardedNamedCaseStillFlagged(t *testing.T) {
+	// Non-wildcard `case X if cond:` is a reachable branch, not a catch-all
+	// exhaustiveness guard — assert False there remains assert-true.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "test_case_named_guard.py"), `
+def test_named_guard_multiline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case n if n > 10:
+            assert False
+
+def test_named_guard_sameline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case n if n > 10: assert False
+`)
+	res, err := testRun(t, []string{dir}, rules.NewAssertTrue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 2 {
+		t.Fatalf("case X if cond: assert False must stay flagged, got %+v", res.Findings)
+	}
+}
