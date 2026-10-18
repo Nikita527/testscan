@@ -138,10 +138,12 @@ func sameLineCompoundBody(trim, keyword string) (string, bool) {
 }
 
 // parseMatchWildcardCase recognizes exhaustiveness wildcards:
-//   case _:
-//   case _: <body>
-//   case _ if <guard>:
-//   case _ if <guard>: <body>
+//
+//	case _:
+//	case _: <body>
+//	case _ if <guard>:
+//	case _ if <guard>: <body>
+//
 // Non-wildcard patterns (case X if cond:) return ok=false — those branches are reachable.
 func parseMatchWildcardCase(trim string) (body string, ok bool) {
 	if !strings.HasPrefix(trim, "case ") {
@@ -191,12 +193,6 @@ func elseBelongsToIf(lines []string, elseIdx, elseInd int) bool {
 func isIfOrElifHeader(trim string) bool {
 	return strings.HasPrefix(trim, "if ") || strings.HasPrefix(trim, "if(") ||
 		strings.HasPrefix(trim, "elif ") || strings.HasPrefix(trim, "elif(")
-}
-
-// isMatchDefaultCase matches wildcard `case _:` / `case _ if …:` defaults.
-func isMatchDefaultCase(trim string) bool {
-	_, ok := parseMatchWildcardCase(trim)
-	return ok
 }
 
 // reOrTruthyConstant matches "... or True" / "... or 1" / `... or "x"` style
