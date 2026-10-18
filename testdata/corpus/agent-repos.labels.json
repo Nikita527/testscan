@@ -1,0 +1,602 @@
+[
+ {
+  "fingerprint": "1744cdf3027c344fac06ed748041de0d",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/agent_server/telemetry/test_telemetry_exporter_posthog.py",
+  "line": 94,
+  "label": "fp",
+  "note": "Mock.called is a real attribute"
+ },
+ {
+  "fingerprint": "e442b01f4804f39d3eceaecb6844f66b",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/agent_server/test_conversation_service.py",
+  "line": 3562,
+  "label": "fp",
+  "note": "Mock.called is a real attribute"
+ },
+ {
+  "fingerprint": "dcffe1b004a0df968907c88587ae4c30",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/agent_server/test_docker_build.py",
+  "line": 971,
+  "label": "fp",
+  "note": "assert not mock.called is valid"
+ },
+ {
+  "fingerprint": "4f83e6d6286f93f9257d86936a0bf601",
+  "rule": "fake-mock-assert",
+  "file": "pydantic-ai/tests/models/test_model_function.py",
+  "line": 453,
+  "label": "fp",
+  "note": "local bool variable `called`, not a mock"
+ },
+ {
+  "fingerprint": "284455c87215ac0bbb1116c5e195f4df",
+  "rule": "fake-mock-assert",
+  "file": "openai-agents-python/tests/test_tool_exception_formatter.py",
+  "line": 180,
+  "label": "fp",
+  "note": "local variable `called`"
+ },
+ {
+  "fingerprint": "468182343932733001131674ceb78ead",
+  "rule": "fake-mock-assert",
+  "file": "pydantic-ai/tests/test_capability_hooks.py",
+  "line": 2483,
+  "label": "fp",
+  "note": "attribute of a test double, not Mock"
+ },
+ {
+  "fingerprint": "861f13b71a3a6b8e948fa2738e71e683",
+  "rule": "assert-equals-same",
+  "file": "software-agent-sdk/tests/agent_server/telemetry/test_telemetry_sanitizer.py",
+  "line": 84,
+  "label": "fp",
+  "note": "determinism check f(x)==f(x): two separate calls"
+ },
+ {
+  "fingerprint": "14c8bef080f077b49ffb986d9565b7f6",
+  "rule": "assert-equals-same",
+  "file": "pydantic-ai/tests/durable_exec/temporal/test_agent.py",
+  "line": 2756,
+  "label": "fp",
+  "note": "cached property identity check"
+ },
+ {
+  "fingerprint": "b5c56c94b8d7b27e4b236960cd24f0ba",
+  "rule": "assert-equals-same",
+  "file": "pydantic-ai/tests/test_embeddings.py",
+  "line": 2466,
+  "label": "skip",
+  "note": "intentional __eq__ reflexivity"
+ },
+ {
+  "fingerprint": "b80af5bf36225690aef532698f730869",
+  "rule": "empty-test",
+  "file": "browser-use/tests/ci/infrastructure/test_registry_action_parameter_injection.py",
+  "line": 121,
+  "label": "tp",
+  "note": "placeholder for removed method"
+ },
+ {
+  "fingerprint": "9176fe8bae5d4f64080e3b2d6a55a86d",
+  "rule": "empty-test",
+  "file": "pydantic-ai/tests/graph/builder/test_basenode_integration.py",
+  "line": 275,
+  "label": "tp",
+  "note": "'documents usage' but body is pass"
+ },
+ {
+  "fingerprint": "730e13dcf84f10e041c503024ad49c0f",
+  "rule": "empty-test",
+  "file": "pydantic-ai/tests/graph/builder/test_graph_execution.py",
+  "line": 208,
+  "label": "tp",
+  "note": "'documents expected behavior' but body is pass"
+ },
+ {
+  "fingerprint": "a7fe6900b3b85f948c52d9d0881fad8c",
+  "rule": "assert-true",
+  "file": "openai-agents-python/tests/test_visualization.py",
+  "line": 106,
+  "label": "tp",
+  "note": "REAL BUG: assert on non-empty string literal, missing `in result`"
+ },
+ {
+  "fingerprint": "4f51f6b14dbc42e933beffb099055ec1",
+  "rule": "assert-true",
+  "file": "software-agent-sdk/tests/agent_server/test_api_authentication.py",
+  "line": 300,
+  "label": "tp",
+  "note": "REAL BUG: assert False inside pytest.raises(Exception) is swallowed"
+ },
+ {
+  "fingerprint": "4f51f6b14dbc42e933beffb099055ec1",
+  "rule": "assert-true",
+  "file": "software-agent-sdk/tests/agent_server/test_api_authentication.py",
+  "line": 327,
+  "label": "tp",
+  "note": "REAL BUG: same pattern"
+ },
+ {
+  "fingerprint": "4f51f6b14dbc42e933beffb099055ec1",
+  "rule": "assert-true",
+  "file": "software-agent-sdk/tests/agent_server/test_api_authentication.py",
+  "line": 335,
+  "label": "tp",
+  "note": "REAL BUG: same pattern"
+ },
+ {
+  "fingerprint": "fcceabdf8dbbf35b068f28c8fe56f6af",
+  "rule": "assert-true",
+  "file": "browser-use/tests/ci/test_ax_name_matching.py",
+  "line": 236,
+  "label": "tp",
+  "note": "manual try/assert False; use pytest.raises"
+ },
+ {
+  "fingerprint": "22f9315fb5648604264b08dcf1771a1c",
+  "rule": "assert-true",
+  "file": "software-agent-sdk/tests/tools/grep/test_grep_tool.py",
+  "line": 47,
+  "label": "tp",
+  "note": "manual try/assert False; use pytest.raises"
+ },
+ {
+  "fingerprint": "aa96bea5c9318e2c9306f98cdff2df64",
+  "rule": "assert-true",
+  "file": "aider/tests/basic/test_repo.py",
+  "line": 470,
+  "label": "tp",
+  "note": "assertTrue(len>=3) -> assertGreaterEqual"
+ },
+ {
+  "fingerprint": "9fcd87f1b7dcc07b742bee16c0d88c2e",
+  "rule": "broad-raises",
+  "file": "software-agent-sdk/tests/sdk/event/test_event_immutability.py",
+  "line": 190,
+  "label": "tp",
+  "note": "pytest.raises(Exception) for frozen model"
+ },
+ {
+  "fingerprint": "9fd89b7dbaa6bbd8fc0f1f26cd23d8ee",
+  "rule": "broad-raises",
+  "file": "software-agent-sdk/tests/sdk/agent/test_iterative_refinement.py",
+  "line": 99,
+  "label": "tp",
+  "note": "comment says ValidationError"
+ },
+ {
+  "fingerprint": "4d20b2f2e453585e750aa4f171da7d09",
+  "rule": "broad-raises",
+  "file": "openai-agents-python/tests/test_max_turns.py",
+  "line": 287,
+  "label": "skip",
+  "note": "streaming requires consumer loop inside raises"
+ },
+ {
+  "fingerprint": "67a1aeb7c4dd8f44a0357b9b302c95a6",
+  "rule": "broad-raises",
+  "file": "pydantic-ai/tests/test_capability_native_or_local.py",
+  "line": 2285,
+  "label": "tp",
+  "note": "Agent() construction inside raises"
+ },
+ {
+  "fingerprint": "b548a295906e22912dd507bf0f347993",
+  "rule": "todo-test",
+  "file": "browser-use/tests/ci/interactions/test_dropdown_aria_menus.py",
+  "line": 151,
+  "label": "tp",
+  "note": "skip TODO: fix"
+ },
+ {
+  "fingerprint": "2285acf27487603040babfb1585098c2",
+  "rule": "todo-test",
+  "file": "browser-use/tests/ci/infrastructure/test_registry_action_parameter_injection.py",
+  "line": 78,
+  "label": "tp",
+  "note": "skip TODO: fix"
+ },
+ {
+  "fingerprint": "5dd883d3fbe372f8f76581cb1b893385",
+  "rule": "commented-assert",
+  "file": "aider/tests/basic/test_analytics.py",
+  "line": 40,
+  "label": "tp",
+  "note": "dead check"
+ },
+ {
+  "fingerprint": "bf3d082f4e4d178504579b6f0921d9f9",
+  "rule": "commented-assert",
+  "file": "browser-use/tests/ci/browser/test_session_start.py",
+  "line": 87,
+  "label": "tp",
+  "note": "whole commented-out test"
+ },
+ {
+  "fingerprint": "e2a1b739708198fc465232b13cf0d618",
+  "rule": "commented-assert",
+  "file": "pydantic-ai/tests/test_tools.py",
+  "line": 1090,
+  "label": "fp",
+  "note": "explanatory comment of alternative output"
+ },
+ {
+  "fingerprint": "4cddc56c1d41eceb08b7e298ab453ae4",
+  "rule": "sleep-in-test",
+  "file": "software-agent-sdk/tests/sdk/hooks/test_executor.py",
+  "line": 264,
+  "label": "tp",
+  "note": "fixed sleep then assert file exists"
+ },
+ {
+  "fingerprint": "d8cc545291d73a736e1cfd137c5381fb",
+  "rule": "sleep-in-test",
+  "file": "software-agent-sdk/tests/tools/terminal/test_send_keys.py",
+  "line": 160,
+  "label": "tp",
+  "note": "sleep before reading tmux screen"
+ },
+ {
+  "fingerprint": "ac03a51538e824d6c7955aa3ea1f6579",
+  "rule": "sleep-in-test",
+  "file": "browser-use/tests/ci/test_action_save_as_pdf.py",
+  "line": 131,
+  "label": "tp",
+  "note": "sleep waiting for page load"
+ },
+ {
+  "fingerprint": "8b4dc2ca68f6e1e536e03e460c7e91e6",
+  "rule": "sleep-in-test",
+  "file": "openai-agents-python/tests/test_run_impl_resume_paths.py",
+  "line": 2706,
+  "label": "fp",
+  "note": "simulates slow consumer intentionally"
+ },
+ {
+  "fingerprint": "e469f39ece7bdf11a977cc4cc1ba922d",
+  "rule": "sleep-in-test",
+  "file": "pydantic-ai/tests/harness/experimental/acp/test_acp.py",
+  "line": 1737,
+  "label": "fp",
+  "note": "asyncio.sleep(0) yield in bounded fail_after loop"
+ },
+ {
+  "fingerprint": "9d34fd28534608139e2e2e5f62f5e67e",
+  "rule": "sleep-in-test",
+  "file": "openai-agents-python/tests/voice/test_pipeline.py",
+  "line": 421,
+  "label": "fp",
+  "note": "asyncio.sleep(0) = yield to loop"
+ },
+ {
+  "fingerprint": "a6cd0ffbba2b1c197a90781b72117f1c",
+  "rule": "overbroad-equality",
+  "file": "openai-agents-python/tests/test_released_api_contract.py",
+  "line": 2115,
+  "label": "fp",
+  "note": "exact full-value check is a strong assert"
+ },
+ {
+  "fingerprint": "bd3a66342bd304a9f2953d25a52493da",
+  "rule": "overbroad-equality",
+  "file": "pydantic-ai/tests/clai2/test_command_edges.py",
+  "line": 73,
+  "label": "fp",
+  "note": "exact list equality is the right check"
+ },
+ {
+  "fingerprint": "62543e998969068778dbbd9b5d843449",
+  "rule": "weak-assert",
+  "file": "software-agent-sdk/tests/sdk/context/view/properties/test_batch_atomicity.py",
+  "line": 214,
+  "label": "fp",
+  "note": "len(x)==0 is exact"
+ },
+ {
+  "fingerprint": "b4f9f7606321efa4db91bca0ff3572c3",
+  "rule": "weak-assert",
+  "file": "software-agent-sdk/tests/agent_server/test_persistence_secret_detection.py",
+  "line": 48,
+  "label": "fp",
+  "note": "bool property truthy is exact"
+ },
+ {
+  "fingerprint": "0dea47bbe3e88aba854b37232b2269ee",
+  "rule": "weak-assert",
+  "file": "browser-use/tests/ci/test_file_system_images.py",
+  "line": 156,
+  "label": "tp",
+  "note": "only `is not None`"
+ },
+ {
+  "fingerprint": "b97923309a5bcf98724a8c8f1b079c8e",
+  "rule": "assert-in-emptyable-loop",
+  "file": "software-agent-sdk/tests/sdk/utils/test_github.py",
+  "line": 22,
+  "label": "fp",
+  "note": "loop over local literal list"
+ },
+ {
+  "fingerprint": "f0ad5119d2c0dcf61ac30788408350c5",
+  "rule": "assert-in-emptyable-loop",
+  "file": "openai-agents-python/tests/memory/test_openai_responses_compaction_session.py",
+  "line": 2675,
+  "label": "tp",
+  "note": "loop over SUT output; empty passes vacuously"
+ },
+ {
+  "fingerprint": "0e90b64cb19043dbaf69bdbd551a5251",
+  "rule": "assert-in-emptyable-loop",
+  "file": "pydantic-ai/tests/test_ag_ui.py",
+  "line": 5588,
+  "label": "tp",
+  "note": "loop over SUT events"
+ },
+ {
+  "fingerprint": "5272ffb99f8072b0d398bf707f8b2fa2",
+  "rule": "expected-recomputed",
+  "file": "pydantic-ai/tests/test_usage_attribution.py",
+  "line": 132,
+  "label": "fp",
+  "note": "RHS is a value-object constructor"
+ },
+ {
+  "fingerprint": "0f31e00eff552833803807193bde0bca",
+  "rule": "expected-recomputed",
+  "file": "pydantic-ai/tests/clai2/test_status.py",
+  "line": 134,
+  "label": "fp",
+  "note": "Status() default value object"
+ },
+ {
+  "fingerprint": "41d8503eba0ac0bd67b6545d7e4a4fb8",
+  "rule": "expected-recomputed",
+  "file": "pydantic-ai/tests/durable_exec/test_prefect.py",
+  "line": 2335,
+  "label": "fp",
+  "note": "determinism of key function is the intent"
+ },
+ {
+  "fingerprint": "a9c0d6c4c07c3a4275f8f85b92ccc7e8",
+  "rule": "swallowed-exception",
+  "file": "browser-use/browser_use/llm/tests/test_single_step.py",
+  "line": 234,
+  "label": "tp",
+  "note": "LLM errors logged, test never fails"
+ },
+ {
+  "fingerprint": "db0b9b30253f70157a6c920e8bd094ba",
+  "rule": "swallowed-exception",
+  "file": "browser-use/tests/ci/browser/test_cdp_headers.py",
+  "line": 120,
+  "label": "tp",
+  "note": "connect() errors swallowed"
+ },
+ {
+  "fingerprint": "c7cfc1713b494bc0f90719ebec15571e",
+  "rule": "swallowed-exception",
+  "file": "openai-agents-python/tests/extensions/memory/test_redis_session.py",
+  "line": 971,
+  "label": "fp",
+  "note": "best-effort cleanup in finally"
+ },
+ {
+  "fingerprint": "4286ec34dbfc264e3fca0ef9e91c01f7",
+  "rule": "swallowed-exception",
+  "file": "software-agent-sdk/tests/sdk/agent/test_stream_context.py",
+  "line": 134,
+  "label": "fp",
+  "note": "except BaseException as raised: assert raised is exc"
+ },
+ {
+  "fingerprint": "aa9865aabf97d8e94a81bf30358782c5",
+  "rule": "wall-clock-in-test",
+  "file": "pydantic-ai/tests/models/test_google.py",
+  "line": 5277,
+  "label": "fp",
+  "note": "now() used only as input data"
+ },
+ {
+  "fingerprint": "d9cf558d86f8da51d4df9495c051f5ef",
+  "rule": "wall-clock-in-test",
+  "file": "software-agent-sdk/tests/sdk/utils/test_deprecation.py",
+  "line": 106,
+  "label": "fp",
+  "note": "relative date, robust"
+ },
+ {
+  "fingerprint": "f4bdb40da6a3e16cc5ccfffdbbf3105f",
+  "rule": "test-imports-implementation-private",
+  "file": "openai-agents-python/tests/sandbox/test_session_sinks.py",
+  "line": 31,
+  "label": "skip",
+  "note": "unit-testing private helper"
+ },
+ {
+  "fingerprint": "7a9f70cb235912cd28a2ec6c24c7076e",
+  "rule": "test-imports-implementation-private",
+  "file": "software-agent-sdk/tests/sdk/subagent/test_subagent_registry.py",
+  "line": 13,
+  "label": "fp",
+  "note": "_reset_registry_for_tests is a test hook"
+ },
+ {
+  "fingerprint": "6ea9df85962f8878db1dfab2f06cd979",
+  "rule": "test-imports-implementation-private",
+  "file": "pydantic-ai/tests/test_http_client_lifecycle.py",
+  "line": 39,
+  "label": "fp",
+  "note": "third-party private module, not SUT"
+ },
+ {
+  "fingerprint": "928d5c320ee10d5addb74a7c8dfbff02",
+  "rule": "no-behavior-change",
+  "file": "pydantic-ai/tests/harness/e2b_sandbox/test_conformance.py",
+  "line": 27,
+  "label": "fp",
+  "note": "helper function, not a test"
+ },
+ {
+  "fingerprint": "4c7b9924f958437df0239900e4598740",
+  "rule": "mock-tautology",
+  "file": "software-agent-sdk/tests/agent_server/test_conversation_service.py",
+  "line": 879,
+  "label": "fp",
+  "note": "SUT internal state after call"
+ },
+ {
+  "fingerprint": "4cf5e964e49e1be978d2bf403200fe22",
+  "rule": "no-assert",
+  "file": "claude-agent-sdk-python/tests/test_session_store_conformance.py",
+  "line": 34,
+  "label": "fp",
+  "note": "assert helper run_session_store_conformance"
+ },
+ {
+  "fingerprint": "642cb1d2b86045d0b095708382bed96a",
+  "rule": "no-assert",
+  "file": "pydantic-ai/tests/durable_exec/temporal/test_durability.py",
+  "line": 4435,
+  "label": "fp",
+  "note": "custom raises ctx manager workflow_raises"
+ },
+ {
+  "fingerprint": "089e3ba0adb9e89b661ecece06e67a13",
+  "rule": "no-assert",
+  "file": "claude-agent-sdk-python/e2e-tests/test_dynamic_control.py",
+  "line": 79,
+  "label": "tp",
+  "note": "print-only e2e test"
+ },
+ {
+  "fingerprint": "07482713ab3e72e19077bc4ecb64d317",
+  "rule": "name-body-mismatch",
+  "file": "pydantic-ai/tests/test_tools.py",
+  "line": 2874,
+  "label": "fp",
+  "note": "error via returned retry prompt"
+ },
+ {
+  "fingerprint": "0fdd4d62d2c053b5e0d72497c973b676",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/agent_server/test_conversation_service.py",
+  "line": 3592,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "8fb0eed2c2f10df39d02d28ea1e401c5",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/agent_server/test_conversation_service.py",
+  "line": 3612,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "2bc63eeb570d41f435a2ba64dfcad921",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/agent_server/test_conversation_service.py",
+  "line": 3639,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "966d225771cdfde207ededa110a5120a",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/sdk/agent/test_acp_contracts.py",
+  "line": 297,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "9d3f6597f833f68f8f288132b5d61acf",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/sdk/context/condenser/test_llm_summarizing_condenser.py",
+  "line": 305,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "83f097703baf7c4cb6d7fa6c34a07ce2",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/sdk/context/condenser/test_utils.py",
+  "line": 79,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "8c798ec4b441f34148ac1e4d41662eb0",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/tools/browser_use/test_browser_cleanup.py",
+  "line": 59,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "2e1c12c4e81c346bc0c80a24f51b41a3",
+  "rule": "fake-mock-assert",
+  "file": "software-agent-sdk/tests/tools/terminal/test_secrets_masking.py",
+  "line": 81,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "8f6aad0b440c75b1330bc57435f618df",
+  "rule": "fake-mock-assert",
+  "file": "pydantic-ai/tests/models/test_model_function.py",
+  "line": 472,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "90e4c209273afac849e4dd1f6237c82f",
+  "rule": "fake-mock-assert",
+  "file": "pydantic-ai/tests/test_run_cancellation.py",
+  "line": 294,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "3473c0b11e65a5af86111b76d61c741f",
+  "rule": "fake-mock-assert",
+  "file": "openai-agents-python/tests/test_tool_exception_formatter.py",
+  "line": 205,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "f4e5bac12756b323d887c830aa4ebe2a",
+  "rule": "fake-mock-assert",
+  "file": "openai-agents-python/tests/test_tool_exception_formatter.py",
+  "line": 339,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "304dcd3d0fa34bf95f964bf76a15dd55",
+  "rule": "fake-mock-assert",
+  "file": "openai-agents-python/tests/test_tool_exception_formatter.py",
+  "line": 392,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "f256e22d5b8bd8cc318957b6ef530846",
+  "rule": "fake-mock-assert",
+  "file": "openai-agents-python/tests/test_tool_exception_formatter.py",
+  "line": 460,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ },
+ {
+  "fingerprint": "92719021aaeccc94810ec64008b5c420",
+  "rule": "fake-mock-assert",
+  "file": "openai-agents-python/tests/test_tool_exception_formatter.py",
+  "line": 552,
+  "label": "fp",
+  "note": "`.called`/local `called` (all 23 reviewed)"
+ }
+]

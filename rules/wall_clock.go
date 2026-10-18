@@ -56,6 +56,11 @@ func (wallClockInTest) Check(file scan.File) []scan.Finding {
 				tz = projectTZ(file.ProjectRoot)
 				tzLoaded = true
 			}
+			// Skip wall-clock values used only as call arguments (input data).
+			// Keep asserts and model/factory field writes.
+			if !wallClockWorthReporting(c) {
+				continue
+			}
 			if !tz.Aware {
 				findings = append(findings, scan.Finding{
 					File:     file.Path,
@@ -85,22 +90,38 @@ func (wallClockInTest) Check(file scan.File) []scan.Finding {
 	return findings
 }
 
-// wallClockFlowMatters: the naive value reaches an assert, a model/factory
-// call, or (outside negative-path tests) another call's argument.
+// wallClockWorthReporting is true when the naive value reaches an assert or a
+// model/factory argument. Pure call_arg uses (passing now() as input data) are
+// skipped — they dominated false positives on agent corpora.
+func wallClockWorthReporting(c parse.Call) bool {
+	if c.InRaises {
+		return false
+	}
+	if len(c.Flow) == 0 {
+		// No flow facts: unused locals / older helpers — keep prior behaviour.
+		return true
+	}
+	for _, f := range c.Flow {
+		if f == "assert" || f == "model_arg" {
+			return true
+		}
+	}
+	return false
+}
+
+// wallClockFlowMatters: timezone-aware projects only warn when the value
+// reaches an assert or model/factory field (not bare call_arg / unused).
 func wallClockFlowMatters(t parse.TestFunc, c parse.Call) bool {
 	if c.InRaises {
 		return false
 	}
-	callArg := false
 	for _, f := range c.Flow {
 		switch f {
 		case "assert", "model_arg":
 			return true
-		case "call_arg":
-			callArg = true
 		}
 	}
-	return callArg && !testHasNegativePath(t, defaultNegativeNames)
+	return false
 }
 
 // wallClockCallLabel is the short call as written, e.g. `datetime.now()`.

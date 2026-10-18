@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -16,14 +17,31 @@ var (
 	reWS        = regexp.MustCompile(`[ \t]+`)
 )
 
-// ComputeFingerprint returns rule+file+qualname+snippet hash (testscan/v1).
+// ComputeFingerprint returns rule+file+qualname+snippet hash (testscan/v1)
+// for a single occurrence (index 1). Prefer AssignFingerprints for batches so
+// identical-shape findings in one test get distinct occurrence indices.
 func ComputeFingerprint(f Finding, content []byte, pathRoot string) string {
+	return computeFingerprintOcc(f, content, pathRoot, 1)
+}
+
+func computeFingerprintOcc(f Finding, content []byte, pathRoot string, occurrence int) string {
+	if occurrence < 1 {
+		occurrence = 1
+	}
 	rel := RelPath(f.File, pathRoot)
 	snippet := extractSnippet(content, f)
 	norm := NormalizeSnippet(snippet)
-	payload := f.Rule + "\n" + rel + "\n" + f.QualName + "\n" + norm
+	payload := f.Rule + "\n" + rel + "\n" + f.QualName + "\n" + norm + "\n" + strconv.Itoa(occurrence)
 	sum := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(sum[:16])
+}
+
+// fingerprintBaseKey is the line-shift-stable identity without occurrence.
+func fingerprintBaseKey(f Finding, content []byte, pathRoot string) string {
+	rel := RelPath(f.File, pathRoot)
+	snippet := extractSnippet(content, f)
+	norm := NormalizeSnippet(snippet)
+	return f.Rule + "\n" + rel + "\n" + f.QualName + "\n" + norm
 }
 
 // PrimaryLocationLineHash is a stable SARIF partial fingerprint without file content.
@@ -91,13 +109,51 @@ func RelativizeFindings(findings []Finding, root string) {
 	}
 }
 
-// AssignFingerprints fills Fingerprint and Snippet using file contents keyed by original path.
+// AssignFingerprints fills Fingerprint and Snippet using file contents keyed by
+// original path. Identical rule+file+qualname+normalized-snippet findings get
+// a 1-based occurrence index (sorted by line) so duplicates in one test are
+// distinct for --baseline and precision, while staying stable under line shifts.
 func AssignFingerprints(findings []Finding, byPath map[string][]byte, pathRoot string) {
+	type meta struct {
+		key  string
+		line int
+		idx  int
+	}
+	metas := make([]meta, len(findings))
+	contents := make([][]byte, len(findings))
 	for i := range findings {
 		content := contentFor(findings[i].File, byPath)
-		findings[i].Fingerprint = ComputeFingerprint(findings[i], content, pathRoot)
+		contents[i] = content
+		metas[i] = meta{
+			key:  fingerprintBaseKey(findings[i], content, pathRoot),
+			line: findings[i].Line,
+			idx:  i,
+		}
+	}
+	order := make([]int, len(findings))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ia, ib := order[a], order[b]
+		if metas[ia].key != metas[ib].key {
+			return metas[ia].key < metas[ib].key
+		}
+		if metas[ia].line != metas[ib].line {
+			return metas[ia].line < metas[ib].line
+		}
+		return ia < ib
+	})
+	occ := make(map[string]int, len(findings))
+	occOf := make([]int, len(findings))
+	for _, i := range order {
+		occ[metas[i].key]++
+		occOf[i] = occ[metas[i].key]
+	}
+	for i := range findings {
+		findings[i].Fingerprint = computeFingerprintOcc(findings[i], contents[i], pathRoot, occOf[i])
 		if findings[i].Snippet == "" {
-			findings[i].Snippet = ContextSnippet(content, findings[i].Line, 5)
+			findings[i].Snippet = ContextSnippet(contents[i], findings[i].Line, 5)
 		}
 	}
 }

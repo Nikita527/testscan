@@ -40,7 +40,7 @@ func (weakAssert) Check(file scan.File) []scan.Finding {
 		case isWeakStatusOnly(t, src):
 			reason = "only status_code == 200 without response body check"
 		case allAssertsWeak(t):
-			reason = "only weak asserts (bare truthy / is not None / len vs 0)"
+			reason = "only weak asserts (bare truthy / is not None / len > 0)"
 		default:
 			continue
 		}
@@ -88,9 +88,9 @@ func isWeakAssert(a parse.Assert, t parse.TestFunc) bool {
 	}
 }
 
-// isBareTruthyWeak is true only for bare Name/Attribute truthy checks
-// (assert x / assert obj.flag). Calls, "not …", bool-ops, and subscripts
-// are treated as explicit boolean contracts, not weak asserts.
+// isBareTruthyWeak is true only for bare Name truthy checks (assert result).
+// Attribute bools (assert obj.flag / assert called) are intentional contracts,
+// not weak asserts. Calls, "not …", bool-ops, and subscripts are also excluded.
 func isBareTruthyWeak(a parse.Assert) bool {
 	text := strings.TrimSpace(a.Text)
 	if text == "" {
@@ -112,7 +112,7 @@ func isBareTruthyWeak(a parse.Assert) bool {
 	if strings.Contains(text, " and ") || strings.Contains(text, " or ") {
 		return false
 	}
-	if strings.Contains(text, "[") {
+	if strings.Contains(text, "[") || strings.Contains(text, ".") {
 		return false
 	}
 	return true
@@ -130,11 +130,28 @@ func isWeakCompare(a parse.Assert) bool {
 		(right == "None" || left == "None") {
 		return true
 	}
-	// len(...) compared to exactly 0 (not len == 200).
-	if isLenExpr(left) && right == "0" {
+	// len(...) > 0 / != 0 is a weak non-emptiness check.
+	// len(...) == 0 is an exact emptiness contract — not weak.
+	if isLenExpr(left) && isPositiveLenBound(text, right) {
 		return true
 	}
-	if isLenExpr(right) && left == "0" {
+	if isLenExpr(right) && isPositiveLenBound(text, left) {
+		return true
+	}
+	return false
+}
+
+// isPositiveLenBound is true for comparisons that only require a positive length
+// (len(x) > 0, len(x) >= 1, len(x) != 0), not an exact count.
+func isPositiveLenBound(text, other string) bool {
+	other = strings.TrimSpace(other)
+	if other != "0" && other != "1" {
+		return false
+	}
+	if strings.Contains(text, ">") || strings.Contains(text, "!=") {
+		return other == "0" || (other == "1" && strings.Contains(text, ">="))
+	}
+	if strings.Contains(text, ">=") && other == "1" {
 		return true
 	}
 	return false
