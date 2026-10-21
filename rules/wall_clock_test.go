@@ -106,7 +106,7 @@ func TestWallClock_TZAwareProject(t *testing.T) {
 	}
 	sort.Strings(names)
 	want := []string{
-		"test_assert_direct", "test_call_arg_positive",
+		"test_assert_direct",
 		"test_model_field_via_name", "test_utcnow_assert",
 	}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
@@ -130,9 +130,15 @@ func TestWallClock_NonAwareProjectKeepsNote(t *testing.T) {
 			t.Errorf("%s: tz-aware call must not be reported", aware)
 		}
 	}
-	for _, naive := range []string{"test_unused_value", "test_pinned_missing_returns_error", "test_model_field_via_name"} {
+	for _, naive := range []string{"test_unused_value", "test_model_field_via_name", "test_assert_direct"} {
 		if _, ok := got[naive]; !ok {
 			t.Errorf("%s: naive call should stay a note in non-aware project", naive)
+		}
+	}
+	// Pure call_arg input (date passed into resolve) is not reported.
+	for _, skip := range []string{"test_call_arg_positive", "test_pinned_missing_returns_error"} {
+		if _, ok := got[skip]; ok {
+			t.Errorf("%s: call_arg-only wall-clock must not be reported", skip)
 		}
 	}
 }

@@ -5,6 +5,48 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.0 - 2026-10-19
+
+Precision-first: make the default view trustworthy after the 0.7.0 agent-repo benchmark (6 repos, 42k tests — 3/30 default findings were true positives).
+
+### Breaking
+
+- **`todo-test`** and **`assert-true`** are tier **`deterministic`**: shown by default again and affect `--fail-on` / SARIF / Code Quality (they still do **not** count toward `actionable_count` / `--compare` trend).
+- **`overbroad-equality`** is **opt-in** (off unless `--enable overbroad-equality` / `enable = ["overbroad-equality"]`).
+- **`wall-clock-in-test`** is **hidden by default** (`neverFocus`). Re-enable with `--all` / `--enable wall-clock-in-test` / `--rule wall-clock-in-test`.
+- **Finding fingerprints** now include an occurrence index (identical shapes in one test no longer collide). Existing `--baseline` files need a one-time re-save.
+
+**Migration:** if CI starts failing on newly visible `todo-test` / `assert-true` findings, either fix them, add `# testscan: ignore[...]`, use `--baseline`, or `--disable todo-test --disable assert-true`. To keep scanning huge-literal equality checks, add `overbroad-equality` to `enable`. To see wall-clock findings again, use `--all` or `--enable wall-clock-in-test`. Re-save baselines after upgrade.
+
+### Added
+
+- Deterministic rule **`assert-inside-broad-raises`**: `assert False` / `pytest.fail` inside `pytest.raises(Exception|BaseException|AssertionError)` (including the tuple form `pytest.raises((Exception, …))`). AssertionError is swallowed by the broad catch.
+- `--enable` / `--disable` / `--rule` accept **comma-separated** IDs (`--enable a,b`).
+
+### Changed
+
+- **`assert-true`** messages distinguish string literals and `… or True` tautologies; skips `assert False` inside broad `pytest.raises` (owned by `assert-inside-broad-raises`) and `else: assert False` exhaustiveness guards.
+- **`near-duplicate-test`**: allowlisted note that passes default focus; default **text** output collapses to one summary line per file (`--all` / JSON keep every finding).
+- **`fake-mock-assert`**: drop `Mock.called` / bare local `called`; require Mock/patch/mocker origin for `called_once`/`called_with` attrs; recognize `assert_awaited*`.
+- **`assert-equals-same`**: only bare Name/literal self-compares (skip `f(x)==f(x)`, `a.prop is a.prop`).
+- **`sleep-in-test`**: ignore `asyncio.sleep(0)` / `sleep(0.0)` and sleeps inside loops bounded by deadline helpers (`fail_after` / `wait_for` / …). Bare `break`/`return` or a `timeout = N` variable alone do **not** suppress.
+- **`weak-assert`**: `len(x)==0` and bool attributes are no longer weak; keep `is not None` and `len > 0`.
+- **`expected-recomputed`**: skip real value-object/class constructors (`class` in file or CapWords with keyword=literal args); CamelCase **helpers** still report.
+- **`wall-clock-in-test`**: skip pure `call_arg` uses; also in `neverFocus` so note/warning findings stay out of the default view (0% on agent corpora when used as input). Re-enable with `--all` / `--enable wall-clock-in-test`.
+- **Fingerprints** include a 1-based occurrence index among identical rule+file+qualname+normalized-snippet shapes (stable under line shifts). Re-save `--baseline` after upgrading.
+- **`assert-true`**: `else: assert False` suppress only for **if/elif** (and `case _:`), not for/while/try else.
+- Text header provisional/actionable counts match **collapsed** near-duplicate lines.
+- Mock-name detection uses identifier-token boundaries (not substring `mock`); `isPytestFailCall` matches only `pytest.fail` / imported `fail`.
+
+### Precision (measured on 6 agent repos, 42k tests)
+
+| View | Findings | TP | FP | Precision |
+|---|---:|---:|---:|---:|
+| **0.7.0 default** | 30 | 3 | 27 | **10%** |
+| **0.8.0 branch mid-PR (before wall-clock / dedupe / collapse fixes)** | 150 | ~115 | ~13 | **~90%** |
+
+0.7.0 default was almost all `fake-mock-assert` / `assert-equals-same` FPs plus 3 `empty-test` TPs. The mid-PR 150 came mostly from newly visible `todo-test` / `assert-true` / `assert-inside-broad-raises` / `near-duplicate-test`, plus 12 `wall-clock-in-test` FPs (now hidden by default). Post-fix default-view precision was not re-measured on the full agent corpora in this environment (labels alone without a fresh `--all` report cannot reproduce the focused 150-finding set).
+
 ## 0.7.0 - 2026-10-15
 
 ### Added
@@ -218,7 +260,8 @@ Accuracy roadmap + Health Score. CI that parsed `--format json` as a bare findin
 
 Initial tagged release: Go CLI + PyPI launcher, default AI-test smell rules, text/JSON/SARIF/HTML output, baseline, config, and pre-commit docs.
 
-[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Nikita527/testscan/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Nikita527/testscan/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Nikita527/testscan/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Nikita527/testscan/releases/tag/v0.6.0
 [0.4.0]: https://github.com/Nikita527/testscan/releases/tag/v0.4.0

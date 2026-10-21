@@ -103,8 +103,8 @@ func TestSelect(t *testing.T) {
 
 func TestOptionalAndAll(t *testing.T) {
 	opt := rules.Optional()
-	if len(opt) != 8 {
-		t.Fatalf("Optional=%d, want 8", len(opt))
+	if len(opt) != 9 {
+		t.Fatalf("Optional=%d, want 9", len(opt))
 	}
 	all := rules.All()
 	if len(all) != len(rules.Default())+len(opt) {

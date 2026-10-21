@@ -52,6 +52,7 @@ func TestCorpus(t *testing.T) {
 		{"expected-recomputed", rules.NewExpectedRecomputed(), "testdata/expected_recomputed", "test_recomputed.py", "expected-recomputed", 3},
 		{"commented-assert", rules.NewCommentedAssert(), "testdata/commented_assert", "test_commented.py", "commented-assert", 3},
 		{"overbroad-equality", rules.NewOverbroadEquality(), "testdata/overbroad_equality", "test_huge.py", "overbroad-equality", 3},
+		{"assert-inside-broad-raises", rules.NewAssertInsideBroadRaises(), "testdata/assert_inside_broad_raises", "test_auth.py", "assert-inside-broad-raises", 7},
 		{"error-contract-assert", rules.NewErrorContractAssert(rules.ErrorContractAssertOpts{}), "testdata/error_contract_assert", "test_status_only.py", "error-contract-assert", 1},
 		{"raises-without-check", rules.NewRaisesWithoutCheck(rules.RaisesWithoutCheckOpts{}), "testdata/raises_without_check", "test_bare_raises.py", "raises-without-check", 5},
 		{"rbac-mutation-guard", rules.NewRBACMutationGuard(rules.RBACMutationGuardOpts{}), "testdata/rbac_mutation_guard", "test_rbac_open.py", "rbac-mutation-guard", 1},

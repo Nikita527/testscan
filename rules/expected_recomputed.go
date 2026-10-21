@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -33,6 +34,11 @@ func (expectedRecomputed) Check(file scan.File) []scan.Finding {
 			}
 			rightLeaf := callLeafFromSide(a.Right)
 			if rightLeaf == "" || isBuiltinOrLiteralCall(rightLeaf) || isTrivialMethodLeaf(rightLeaf) {
+				continue
+			}
+			// Value-object / class constructors — not recomputes. CamelCase helpers
+			// (ComputeExpected(x)) still report when they recompute the LHS.
+			if isValueObjectConstructor(a.Right, src) {
 				continue
 			}
 			// Determinism: assert f(x) == f(x) — both sides are the same call; not a recompute smell.
@@ -117,7 +123,6 @@ func nameAssignedFromLeaf(t parse.TestFunc, src string, name, leaf string, asser
 		if !strings.HasPrefix(trim, prefix) && !strings.HasPrefix(trim, prefix2) {
 			continue
 		}
-		// RHS of assignment should call leaf (compute( / mod.compute().
 		eq := strings.Index(trim, "=")
 		if eq < 0 {
 			continue
@@ -138,11 +143,114 @@ func callLeafFromSide(side string) string {
 	if side == "" {
 		return ""
 	}
-	// Strip trailing call args: compute(x) → compute, mod.fn(a, b) → fn
 	if i := strings.Index(side, "("); i >= 0 {
 		side = side[:i]
 	}
 	return leafName(side)
+}
+
+// isValueObjectConstructor is true for CapWords calls that look like class /
+// dataclass constructors: a `class Leaf` exists in the file, or the call uses
+// only keyword=literal arguments / no args (RunUsage(input_tokens=7), Status()).
+// CapWords helpers with positional args (ComputeExpected(3)) still report.
+func isValueObjectConstructor(side, src string) bool {
+	leaf := callLeafFromSide(side)
+	if leaf == "" || !unicode.IsUpper(rune(leaf[0])) {
+		return false
+	}
+	if classDefinedInSrc(src, leaf) {
+		return true
+	}
+	return callArgsAreKeywordLiteralsOnly(side)
+}
+
+func classDefinedInSrc(src, name string) bool {
+	if src == "" || name == "" {
+		return false
+	}
+	needle := "class " + name
+	for _, line := range strings.Split(src, "\n") {
+		trim := strings.TrimSpace(line)
+		if !strings.HasPrefix(trim, needle) {
+			continue
+		}
+		rest := trim[len(needle):]
+		if rest == "" || rest[0] == '(' || rest[0] == ':' || rest[0] == ' ' {
+			return true
+		}
+	}
+	return false
+}
+
+// callArgsAreKeywordLiteralsOnly reports CapWords() / CapWords(kw=1) style.
+// Any positional argument means "not a pure value-object constructor".
+func callArgsAreKeywordLiteralsOnly(side string) bool {
+	side = strings.TrimSpace(side)
+	open := strings.Index(side, "(")
+	if open < 0 || !strings.HasSuffix(side, ")") {
+		return false
+	}
+	inner := strings.TrimSpace(side[open+1 : len(side)-1])
+	if inner == "" {
+		return true // Status()
+	}
+	depth, quote := 0, byte(0)
+	start := 0
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth--
+		case ',':
+			if depth != 0 {
+				continue
+			}
+			if !argIsKeywordLiteral(strings.TrimSpace(inner[start:i])) {
+				return false
+			}
+			start = i + 1
+		}
+	}
+	return argIsKeywordLiteral(strings.TrimSpace(inner[start:]))
+}
+
+func argIsKeywordLiteral(arg string) bool {
+	if arg == "" {
+		return true
+	}
+	eq := strings.Index(arg, "=")
+	if eq < 0 {
+		return false // positional — likely a helper, not a value object
+	}
+	val := strings.TrimSpace(arg[eq+1:])
+	switch val {
+	case "True", "False", "None", "...":
+		return true
+	}
+	if isQuotedStringLiteral(val) {
+		return true
+	}
+	if _, err := strconv.ParseInt(val, 0, 64); err == nil {
+		return true
+	}
+	if _, err := strconv.ParseFloat(val, 64); err == nil {
+		return true
+	}
+	return false
 }
 
 func isBuiltinOrLiteralCall(leaf string) bool {
@@ -153,7 +261,6 @@ func isBuiltinOrLiteralCall(leaf string) bool {
 		"any", "all", "next", "iter", "range", "print", "id", "hash", "hex", "oct",
 		"bytes", "bytearray", "memoryview", "complex", "object", "super",
 		"frozenset", "slice", "format", "vars", "dir", "callable",
-		// Common constructors / factories — not SUT recomputation.
 		"datetime", "date", "time", "timedelta", "timezone",
 		"UUID", "uuid4", "uuid1", "uuid3", "uuid5", "Decimal",
 		"Path", "PurePath", "PosixPath", "WindowsPath",

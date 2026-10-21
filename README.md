@@ -80,7 +80,7 @@ Full hit/clean examples for every rule: [docs/rules.md](docs/rules.md).
 - `--diff <base-ref>` — only test files changed since `base-ref` (PR workflow).
 - `--baseline path.json` / `--compare path.json` — suppress known findings / trend vs a previous JSON report.
 - `--all` — show everything (pre-0.5 full output). `--show-low-precision` — also show **low**-tier rules (focus stays on).
-- `--rule` / `--enable` / `--disable` — select rules; same ID in enable and disable → exit `2`.
+- `--rule` / `--enable` / `--disable` — select rules (comma-separated IDs OK); same ID in enable and disable → exit `2`.
 - `--workers N` — parallel file checks (`0` → `runtime.NumCPU()`).
 - `-o` / `--output PATH`, `--open` — write / open HTML (default path under `.testscan/reports/`).
 
@@ -96,7 +96,7 @@ Each rule falls in one tier (thresholds in `scan/score.go`):
 |------|-----------|------------------|
 | **actionable** | measured, Wilson 95% lower bound ≥ `ActionableMinWilson` (0.7) and N ≥ `ActionableMinN` (20) | yes — counted in the headline number |
 | **provisional** | measured, precision ≥ `ProvisionalMinPrecision` (0.8) and N ≥ `ProvisionalMinN` (5), not actionable | yes — tagged `[provisional]` / badge |
-| **deterministic** | catalog `SourceDeterministic` — follows from Python/pytest semantics (allowlist of 6 rules) | yes — tagged `[deterministic]` / badge; **not** in `actionable_count` |
+| **deterministic** | catalog `SourceDeterministic` — follows from Python/pytest semantics (empty-test, assert-true, todo-test, fake-mock-assert, …) | yes — tagged `[deterministic]` / badge; **not** in `actionable_count` |
 | **low** | everything else: estimated, unmeasured, unknown or below the bars | no (`--show-low-precision` or `--all`) |
 
 N is the number of labelled true + false positives of the rule. Estimated catalog entries (including remaining `est(1.0)` heuristics) are **low**.
@@ -261,30 +261,31 @@ Default rules are on unless `--disable` / `disable`. Opt-in rules are off until 
 | ID | Severity | When |
 |----|----------|------|
 | empty-test | error | AST: empty `test_*` / `Test*` body (`pass` / docstring only); fallback — function/file heuristics |
-| assert-true | warning | `assert True` / `assert 1` / `assert "…"`, or `assertTrue`/`assertFalse` with a comparison |
-| todo-test | warning | pytest.skip / fail("TODO") / assert False, "TODO" |
+| assert-true | warning | `assert True` / `assert 1` / `assert "…"` / `… or True`, or `assertTrue`/`assertFalse` with a comparison (**deterministic**) |
+| todo-test | warning | pytest.skip / fail("TODO") / assert False, "TODO" (**deterministic**) |
 | duplicate-test-name | error | AST: duplicate test function names (lineno of second); fallback — line scan |
 | only-happy-path | note | >min-tests for the same SUT with no negative-path signals (expanded dict); skips pure mappers; optional `mode = "coverage"` / `--coverage` |
-| assert-equals-same | warning | `assert <expr> == <expr>` with identical left and right text |
+| assert-equals-same | warning | `assert <name\|literal> == <same>` (skips `f(x)==f(x)` / attribute caching checks) |
 | snapshot-only | warning | snapshot tooling without a non-snapshot `assert ` |
 | overmocked-io | warning | IO patched (`open` / pathlib / requests / httpx / urllib) and only mock asserts |
 | overmocked-lock | warning | lock API patched/replaced (Django `select_for_update*` / SQLAlchemy `with_for_update` / `with_lockmode`; multiline patch, setattr, attr assign) and only mock asserts |
 | test-imports-implementation-private | note | one finding per import of private `_name` / `pkg._sub` (not `_UPPER_CASE`); message suggests a public submodule |
 | no-behavior-change | warning | every assert is only `isinstance` / `type(...)` |
-| fake-mock-assert | warning | typo / non-existent mock assert method |
+| fake-mock-assert | warning | typo / non-existent mock assert method (not `Mock.called` or local `called`) |
+| assert-inside-broad-raises | warning | `assert False` / `pytest.fail` inside `pytest.raises(Exception\|AssertionError)` (**deterministic**) |
 | assert-tuple | warning | `assert (comparison, msg)` tuple always truthy |
 | broad-raises | warning | `raises(Exception)` without concrete class / match, or multi-stmt body |
 | swallowed-exception | warning | bare / `except Exception` without re-raise |
 | assert-in-emptyable-loop | warning | asserts only inside for over emptyable (`other`) iterable; skips literals / `range` / consts / pre-loop assert |
-| weak-assert | note | only bare truthy / is not None / len vs 0; shallow rejects / GET 200; not `len==N` or `accepts_*` is_valid |
-| sleep-in-test | warning | `time.sleep` / `asyncio.sleep` |
-| wall-clock-in-test | note | `datetime.now` / `date.today` without freeze |
+| weak-assert | note | only bare truthy name / is not None / len > 0; shallow rejects / GET 200; not `len==0` or bool attributes |
+| sleep-in-test | warning | `time.sleep` / `asyncio.sleep` (skips `sleep(0)` and deadline polling loops) |
+| wall-clock-in-test | note | `datetime.now` / `date.today` without freeze (skips pure call-arg; **hidden by default** — `--all` / `--enable wall-clock-in-test`) |
 | skip-without-reason | warning | skip/xfail without reason or strict |
-| near-duplicate-test | note | near-identical bodies after literal norm; skips opposite polarity / different SUT / enums; 3+ → parametrize sketch |
+| near-duplicate-test | note | near-identical bodies after literal norm; **provisional — shown by default** (text collapses to one summary per file; `--all` lists each); skips opposite polarity / different SUT / enums; 3+ → parametrize sketch |
 | self-patched-sut | warning | patches the SUT under test and asserts the patch |
-| expected-recomputed | warning | assert RHS recomputes expected via SUT/helper call (not `f(x)==f(x)` determinism) |
+| expected-recomputed | warning | assert RHS recomputes expected via SUT/helper call (skips CamelCase constructors / `f(x)==f(x)`) |
 | commented-assert | note | commented-out `# assert` / `# self.assert` |
-| overbroad-equality | note | assert equals a huge dict/list/tuple literal (skips `response.data` / `*.json()` contract bodies) |
+| overbroad-equality | *opt-in* | assert equals a huge dict/list/tuple literal (skips `response.data` / `*.json()` contract bodies) |
 | no-assert | *opt-in* | data-flow: no assert depends on the SUT result (traces through assignments/attributes/subscripts back to project-code calls) |
 | mock-only-assert | *opt-in* | data-flow: assert on mock that is not wired into the SUT |
 | mock-tautology | *opt-in* | data-flow: assert compares only values derived from mock configuration |

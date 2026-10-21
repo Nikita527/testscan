@@ -43,8 +43,10 @@ func TestAssertTrue_ConstantLiterals(t *testing.T) {
 		{"1", true},
 		{`"ok"`, true},
 		{"'x'", true},
+		{"result.is_valid or True", true},
 		{"result", false},
 		{"value.is_valid", false},
+		{`"ok" in result`, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.text, func(t *testing.T) {

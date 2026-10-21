@@ -7,6 +7,7 @@ var RuleFix = map[string]string{
 	"empty-test":                          "add the missing arrange/act/assert body, or delete the test",
 	"no-assert":                           "add an `assert` on the observable result of the call (return value, state change or raised error)",
 	"assert-true":                         "replace the constant assert with a comparison of the actual result to an expected value",
+	"assert-inside-broad-raises":          "move the assert/fail outside pytest.raises, or catch a specific exception that is not AssertionError",
 	"mock-only-assert":                    "assert on the return value or resulting state of the code under test, not only on mock calls",
 	"todo-test":                           "implement the test or delete it; do not leave a bare todo/skip marker",
 	"duplicate-test-name":                 "rename one of the tests so every test function name in the scope is unique",

@@ -1,14 +1,14 @@
-# Миграция с 0.4 на 0.5 (и заметки про 0.6)
+# Миграция с 0.4 на 0.5 (и заметки про 0.6 / 0.8)
 
 [English](migration-0.5.md) | Русский
 
-В testscan 0.5 изменились вид по умолчанию и метрики. Здесь собраны детали миграции, которые раньше жили в разделе Flags README, плюс изменение гейта **0.5 → 0.6** для семантических правил.
+В testscan 0.5 изменились вид по умолчанию и метрики. Здесь собраны детали миграции, которые раньше жили в разделе Flags README, плюс изменение гейта **0.5 → 0.6** для семантических правил и раздел **Обновление до 0.8.0**.
 
 ## Вид по умолчанию
 
 - **Focus включён по умолчанию.** Остаются только error/warning с весом precision ≥ `MinPrecisionForGrade` (0.15); notes, правила с нулевой точностью и набор демотированных эвристик отбрасываются. `--focus` — **deprecated no-op** (предупреждение в stderr). `--all` отключает focus и показывает все тиры.
 - **Тиры точности.** Правила: `actionable`, `provisional`, `deterministic` (с 0.6) или `low`. По умолчанию показываются actionable, provisional и deterministic; `--show-low-precision` добавляет `low`, `--all` — всё.
-- В **0.5** estimated-правила с precision 1.0 (включая empty-test, assert-tuple, …) были **low** и скрыты. В **0.6** шесть семантических правил снова **deterministic** и видны — без учёта в `actionable_count`. Остальные `est(1.0)`-эвристики (`todo-test`, `swallowed-exception`, `snapshot-only`, …) остаются low.
+- В **0.5** estimated-правила с precision 1.0 (включая empty-test, assert-tuple, …) были **low** и скрыты. В **0.6** шесть семантических правил снова **deterministic** и видны — без учёта в `actionable_count`. Остальные `est(1.0)`-эвристики (`swallowed-exception`, `snapshot-only`, …) остаются low. С **0.8** `todo-test` и `assert-true` тоже **deterministic** (см. [Обновление до 0.8.0](#обновление-до-080)).
 
 ## Обновление с 0.5 на 0.6
 
@@ -16,6 +16,25 @@
 - Они по-прежнему **не** увеличивают `actionable_count` и тренд `--compare` (тренд только по actionable). Гейт смотрит на severity **показанного** набора; `deterministic_count` в header/JSON — отдельно.
 - Deprecated JSON `health_score` может упасть, когда эти находки снова в shown set (полный вес precision).
 - Если нужен тихий гейт как в 0.5: `--baseline`, `--disable <id>` или pin `testscan@0.5.x`.
+
+## Обновление до 0.8.0
+
+Precision-first вид по умолчанию после бенчмарка agent-репозиториев 0.7.0 (6 репо, ~42k тестов — 3/30 default-находок были true positive).
+
+### Breaking
+
+- **`todo-test`** и **`assert-true`** — тир **`deterministic`**: снова видны по умолчанию и влияют на `--fail-on` / SARIF / Code Quality (по-прежнему **не** входят в `actionable_count` / тренд `--compare`).
+- **`overbroad-equality`** — **opt-in** (выключено, пока нет `--enable overbroad-equality` / `enable = ["overbroad-equality"]`).
+- **`wall-clock-in-test`** **скрыт по умолчанию** (`neverFocus`, включая note/warning). Вернуть: `--all`, либо `--enable wall-clock-in-test` / `--rule wall-clock-in-test` (явные правила обходят focus).
+- **Отпечатки (fingerprints)** включают 1-based **occurrence index** среди одинаковых rule+file+qualname+нормализованный snippet (стабильны при сдвиге строк). Существующие `--baseline` нужно **один раз пересохранить**.
+
+### Display
+
+- **`near-duplicate-test`** остаётся provisional note и виден по умолчанию; в default **text** схлопывается в **одну сводку на файл** (`--all` / JSON / SARIF оставляют каждую находку). Счётчики в text-header совпадают со свёрнутыми строками.
+
+### Миграция
+
+Если CI начинает падать на новых `todo-test` / `assert-true`: починить, `# testscan: ignore[...]`, `--baseline`, или `--disable todo-test --disable assert-true`. Чтобы снова сканировать huge-literal equality — добавьте `overbroad-equality` в `enable`. После апгрейда пересохраните baselines.
 
 ## Гейт в CI
 
