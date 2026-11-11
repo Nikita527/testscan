@@ -196,3 +196,66 @@ def test_named_guard_sameline(x):
 		t.Fatalf("case X if cond: assert False must stay flagged, got %+v", res.Findings)
 	}
 }
+
+func TestAssertTrue_WildcardCaptureCaseClean(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "test_wildcard_capture.py"), `
+def test_capture_multiline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _ as y:
+            assert False
+
+def test_capture_sameline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _ as y: assert False
+
+def test_capture_guarded_multiline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _ as other if x is not None:
+            assert False
+
+def test_capture_guarded_sameline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _ as other if x is not None: assert False
+`)
+	res, err := testRun(t, []string{dir}, rules.NewAssertTrue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("case _ as name: assert False must be clean (exhaustiveness), got %+v", res.Findings)
+	}
+}
+
+func TestAssertTrue_NonWildcardCaptureCaseFlagged(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "test_non_wildcard_capture.py"), `
+def test_non_wildcard_multiline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _x as y:
+            assert False
+
+def test_non_wildcard_sameline(x):
+    match x:
+        case 1:
+            assert x == 1
+        case _x as y: assert False
+`)
+	res, err := testRun(t, []string{dir}, rules.NewAssertTrue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 2 {
+		t.Fatalf("case _x as y: assert False must stay flagged, got %+v", res.Findings)
+	}
+}

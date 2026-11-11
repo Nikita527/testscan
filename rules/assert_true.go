@@ -137,33 +137,33 @@ func sameLineCompoundBody(trim, keyword string) (string, bool) {
 	return strings.TrimSpace(trim[len(keyword):]), true
 }
 
+var reMatchWildcardCase = regexp.MustCompile(`^_\b(?:\s+as\s+[a-zA-Z_][a-zA-Z0-9_]*)?(?:\s+if\b.*?)?\s*:(.*)$`)
+
 // parseMatchWildcardCase recognizes exhaustiveness wildcards:
 //
 //	case _:
 //	case _: <body>
 //	case _ if <guard>:
 //	case _ if <guard>: <body>
+//	case _ as <name>:
+//	case _ as <name>: <body>
+//	case _ as <name> if <guard>:
+//	case _ as <name> if <guard>: <body>
 //
-// Non-wildcard patterns (case X if cond:) return ok=false — those branches are reachable.
+// Non-wildcard patterns (case X if cond:, case _x:) return ok=false — those branches are reachable.
 func parseMatchWildcardCase(trim string) (body string, ok bool) {
 	if !strings.HasPrefix(trim, "case ") {
 		return "", false
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(trim, "case "))
-	switch {
-	case rest == "_", rest == "_:":
+	if rest == "_" || rest == "_:" {
 		return "", true
-	case strings.HasPrefix(rest, "_:"):
-		return strings.TrimSpace(rest[len("_:"):]), true
-	case strings.HasPrefix(rest, "_ if ") || strings.HasPrefix(rest, "_ if("):
-		idx := strings.LastIndex(rest, ":")
-		if idx < 0 {
-			return "", false
-		}
-		return strings.TrimSpace(rest[idx+1:]), true
-	default:
+	}
+	m := reMatchWildcardCase.FindStringSubmatch(rest)
+	if m == nil {
 		return "", false
 	}
+	return strings.TrimSpace(m[1]), true
 }
 
 // elseBelongsToIf is true when the else at elseIdx (indent elseInd) closes an
